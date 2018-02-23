@@ -1,5 +1,5 @@
 {
-  "name": "dbg",
+  "name": "augscript",
   "version": "0.1.0",
   "description": "Augmented REST using typescript anotations",
   "main": "index.js",
