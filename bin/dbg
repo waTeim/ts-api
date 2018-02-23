@@ -1,0 +1,78 @@
+#!/usr/bin/env node --use_strict
+
+/*  Top level dbg driver                                       */
+/*  Cheaply copied from dbg with some of the keywords replaced */
+
+;(function () {
+  // windows: running "dbg blah" in this folder will invoke WSH, not node.
+  /*global WScript*/
+  if (typeof WScript !== 'undefined') {
+    WScript.echo(
+      'dbg does not work when run\n' +
+        'with the Windows Scripting Host\n\n' +
+        "'cd' to a different directory,\n" +
+        "or type 'dbg.cmd <args>',\n" +
+        "or type 'node dbg <args>'."
+    )
+    WScript.quit(1)
+    return
+  }
+
+  process.title = 'dbg'
+
+  const path = require('path')
+  const fs = require('fs');
+  const Promise = require('bluebird');
+  const findRoot = require('find-root');
+  const dbg = require('../lib/dbg.js')
+
+  let program = require('commander');
+
+  program
+    .usage('[options] <files>')
+    .option('-r, --root <rootdir>', 'rootdir []')
+    .option('-o, --out <outdir>', 'outdir []')
+    .parse(process.argv);
+
+  const main = Promise.coroutine(function*() {
+    let outDir = program.out;
+    let tsconfigPath;
+
+    if(outDir == null) {
+      let root = findRoot(process.cwd(),function(dir) {
+        return fs.existsSync(path.resolve(dir,"tsconfig.json"));
+      });
+
+      if(root == null) root = process.cwd();
+      else tsconfigPath = path.resolve(root,"tsconfig.json");
+      if(program.root != null) {
+        root = program.root;
+        if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(root,"tsconfig.json");
+      }
+
+      if(tsconfigPath != null) {
+        let data = fs.readFileSync(tsconfigPath);
+        
+         try {
+           let tsMeta = JSON.parse(data);
+  
+           if(tsMeta != null && tsMeta.compilerOptions != null && tsMeta.compilerOptions.outDir != null) 
+             outDir = path.resolve(root,tsMeta.compilerOptions.outDir);
+         }
+         catch(e) {
+           console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
+         }
+      }
+
+      if(outDir == null) outDir = root;
+    }
+
+    let tmplPath = path.resolve(outDir,"__check.js");
+    let wstream = fs.createWriteStream(tmplPath,{ mode:0o644 });
+
+    dbg.generate(program.args,wstream); 
+  });
+
+  main();
+})()
+

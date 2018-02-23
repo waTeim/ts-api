@@ -1,0 +1,22 @@
+{
+  "name": "dbg",
+  "version": "0.1.0",
+  "description": "Augmented REST using typescript anotations",
+  "main": "index.js",
+  "dependencies": {
+    "ajv": "x",
+    "bluebird": "x",
+    "commander": "x",
+    "doctrine": "x",
+    "find-root": "x",
+    "typescript": "x"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jeff Waller",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^8.0.20"
+  }
+}

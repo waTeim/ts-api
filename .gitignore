@@ -1,0 +1,12 @@
+*.swp
+*.swo
+*.out
+node_modules
+npm-debug.log
+output
+*~
+# OS generated files #
+######################
+.DS_Store
+.DS_Store?
+*.tar.gz
