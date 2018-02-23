@@ -1,7 +1,7 @@
 {
-  "name": "augscript",
+  "name": "tsext",
   "version": "0.1.0",
-  "description": "Augmented REST using typescript anotations",
+  "description": "Extend using the typescript parser-checker",
   "main": "index.js",
   "dependencies": {
     "ajv": "x",
