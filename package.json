@@ -1,7 +1,7 @@
 {
-  "name": "tsext",
-  "version": "0.2.0",
-  "description": "Extend using the typescript parser-checker",
+  "name": "ts-api",
+  "version": "0.3.0",
+  "description": "Create/augment REST API using the typescript parser-checker"
   "main": "lib/check.js",
   "dependencies": {
     "ajv": "x",
@@ -15,7 +15,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "bin": {
-    "exg": "./bin/exg"
+    "cg": "./bin/cg"
   },
   "author": "Jeff Waller",
   "license": "ISC",
