@@ -1,4 +1,31 @@
-const check = require('__check.js');
+const Promise = require('bluebird');
+const fs = require('fs');
+const path = require('path');
+
+function getOutDir() {
+  let tsconfigPath = path.resolve('tsconfig.json');
+  let stats = fs.statSync(tsconfigPath);
+  let outDir = null;
+
+  if(stats != null) {
+    if(stats.isFile()) {
+      let data = fs.readFileSync(tsconfigPath);
+
+      try {
+        let tsMeta = JSON.parse(data);
+
+        if(tsMeta != null && tsMeta.compilerOptions != null && tsMeta.compilerOptions.outDir != null)
+          outDir = path.resolve(tsMeta.compilerOptions.outDir);
+      }
+      catch(e) {}
+    }
+  }
+  return outDir;
+}
+
+let outDir = getOutDir();
+
+const check = require(path.resolve(outDir,'__check.js'));
 
 function GET(p1,p2,p3) {
    return function(target:Object,key:string,descriptor:TypedPropertyDescriptor<any>) {

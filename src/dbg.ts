@@ -158,7 +158,7 @@ function parameterListToJSON(method: DecoratedItem):Object {
     method: `${method.decorates}`,
     parameterNames:parameterNames,
     schema: {
-      "$schema": "http://json-schema.org/draft-06/schema#",
+      "$schema": "http://json-schema.org/draft-07/schema#",
       title: `${method.decorates} plist`,
       description: `Parameter list for ${method.decorates}`,
       type: "object",
@@ -193,15 +193,16 @@ function genSymtabToSchemaDefinitions(): Object {
 }
 
 function genArgsToSchema(parameterNames: any): string {
-  let s = `function(a) {
-  let o = {};\n`;
-   
-  s += "console.log(a);\n";
+  let s = '';
+
+  s += `function(a) {\n`;
+  s += `let o = {};\n`;
+  s += `console.log(a);\n`;
   for(let i = 0;i < parameterNames.length;i++) {
      s += `    o['${parameterNames[i]}'] = a[${i}];\n`;
   }
-  s += "  console.log(o);";
-  s += "  return o;\n  }";
+  s += `  console.log(o);\n`;
+  s += `  return o;\n  }\n`;
   return s;
 }
 
@@ -220,7 +221,7 @@ function genSource(items:DecoratedItem[],wstream: NodeJS.ReadWriteStream) {
 
   body += `const Ajv = require('ajv');`;
   body += `let ajv = new Ajv();`;
-  body += `let definitions = ${JSON.stringify(definitions,null,2)}`;
+  body += `let definitions = ${JSON.stringify(definitions,null,2)}\n`;
   body += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
   wstream.write(body);
   for(let i = 0;i < items.length;i++) {
@@ -386,7 +387,7 @@ function generateChecks(fileNames: string[],options: ts.CompilerOptions,wstream:
           symtab[name.text].comment = comment;
           if(tags != "") {
             symtab[name.text].jsDoc = doctrine.parse(tags);
-            wstream.write(JSON.stringify(symtab[name.text].jsDoc,null,2));
+            //console.log(JSON.stringify(symtab[name.text].jsDoc,null,2));
           }
           ts.forEachChild(node,visit2);
         }
