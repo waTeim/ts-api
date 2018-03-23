@@ -27,7 +27,7 @@ let outDir = getOutDir();
 
 const check = require(path.resolve(outDir,'__check.js'));
 
-function GET(p1,p2,p3) {
+function get(p1) {
    return function(target:Object,key:string,descriptor:TypedPropertyDescriptor<any>) {
       let checkObject = check[(<any>target.constructor).name + "." + key];
 
@@ -59,5 +59,5 @@ function GET(p1,p2,p3) {
 }
 
 module.exports = {
-  GET:GET
+  get:get
 }
