@@ -1,5 +1,6 @@
 import * as ts from "typescript";
 import * as fs from "fs";
+import * as glob from "glob";
 import * as doctrine from "doctrine";
 
 const tsany = ts as any;
@@ -232,8 +233,20 @@ function genSource(items:DecoratedItem[],wstream: NodeJS.ReadWriteStream) {
   }
 }
 
-function generateChecks(fileNames: string[],options: ts.CompilerOptions,wstream: NodeJS.ReadWriteStream): void {
-  let program = ts.createProgram(fileNames,options);
+function getFilenames(patterns: string[]) {
+  let fa = [];
+
+  for(let i = 0;i < patterns.length;i++) {
+    let filenames = glob.sync(patterns[i]);
+
+    for(let j = 0;j < filenames.length;j++) fa.push(filenames[j]);
+  }
+  return fa;
+}
+
+function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: NodeJS.ReadWriteStream): void {
+  let fa = getFilenames(patterns);
+  let program = ts.createProgram(fa,options);
   let output:DecoratedItem[] = [];
   let x = {};
 
@@ -395,14 +408,20 @@ function generateChecks(fileNames: string[],options: ts.CompilerOptions,wstream:
     }
   }
 
-  for(const sourceFile of program.getSourceFiles()) ts.forEachChild(sourceFile,visit);
+  for(const sourceFile of program.getSourceFiles()) {
+    console.log("visiting file: ",sourceFile.fileName);
+    ts.forEachChild(sourceFile,visit);
+  }
   //fs.writeFileSync("checks.json",JSON.stringify(output,null,2));
   genSource(output,wstream);
 }
 
 module.exports = {
-  generate:function(args,wstream) {
-    generateChecks(process.argv.slice(2),{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },wstream);
+  generate:function(args,tsInclude,wstream) {
+    let src = process.argv.slice(2);
+
+    if(src.length == 0) src = tsInclude;
+    generateChecks(src,{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },wstream);
   }
 }
 

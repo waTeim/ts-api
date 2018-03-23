@@ -37,40 +37,40 @@
   const main = Promise.coroutine(function*() {
     let outDir = program.out;
     let tsconfigPath;
+    let tsInclude;
 
-    if(outDir == null) {
-      let root = findRoot(process.cwd(),function(dir) {
-        return fs.existsSync(path.resolve(dir,"tsconfig.json"));
-      });
+    let root = findRoot(process.cwd(),function(dir) {
+      return fs.existsSync(path.resolve(dir,"tsconfig.json"));
+    });
 
-      if(root == null) root = process.cwd();
-      else tsconfigPath = path.resolve(root,"tsconfig.json");
-      if(program.root != null) {
-        root = program.root;
-        if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(root,"tsconfig.json");
-      }
-
-      if(tsconfigPath != null) {
-        let data = fs.readFileSync(tsconfigPath);
-        
-         try {
-           let tsMeta = JSON.parse(data);
-  
-           if(tsMeta != null && tsMeta.compilerOptions != null && tsMeta.compilerOptions.outDir != null) 
-             outDir = path.resolve(root,tsMeta.compilerOptions.outDir);
-         }
-         catch(e) {
-           console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
-         }
-      }
-
-      if(outDir == null) outDir = root;
+    if(root == null) root = process.cwd();
+    else tsconfigPath = path.resolve(root,"tsconfig.json");
+    if(program.root != null) {
+      root = program.root;
+      if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(root,"tsconfig.json");
     }
+
+    if(tsconfigPath != null) {
+      let data = fs.readFileSync(tsconfigPath);
+        
+       try {
+         let tsMeta = JSON.parse(data);
+  
+         if(tsMeta != null && tsMeta.compilerOptions != null && tsMeta.compilerOptions.outDir != null) 
+           outDir = path.resolve(root,tsMeta.compilerOptions.outDir);
+         if(tsMeta != null && tsMeta.include != null) tsInclude = tsMeta.include;
+       }
+       catch(e) {
+         console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
+       }
+    }
+
+    if(outDir == null) outDir = root;
 
     let tmplPath = path.resolve(outDir,"__check.js");
     let wstream = fs.createWriteStream(tmplPath,{ mode:0o644 });
 
-    dbg.generate(program.args,wstream); 
+    dbg.generate(program.args,tsInclude,wstream); 
   });
 
   main();
