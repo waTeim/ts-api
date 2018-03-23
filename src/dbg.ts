@@ -255,7 +255,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
     return (node.flags & ts.ModifierFlags.Export) !== 0 || (node.parent && node.parent.kind === ts.SyntaxKind.SourceFile);
   }
 
-  function extractDecoratorInfo(node: ts.Node) {
+  function visitDecorator(node: ts.Node) {
     if(ts.isDecorator(node)) {
       const expr = (<ts.Decorator>node).expression;
       let parentName = "unknown";
@@ -291,7 +291,13 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
 
         }
         break;
-        case ts.SyntaxKind.ClassDeclaration: /* do nothing for classes yet */ break;
+        case ts.SyntaxKind.ClassDeclaration: /* do nothing for classes yet */
+        {
+          const x = (<ts.ClassDeclaration>(node.parent)).name;
+
+          ts.forEachChild(node.parent,visit);
+        }
+        break;
         default: throw("unknown decorated type (" + node.parent.kind + ")");
       }
 
@@ -382,7 +388,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
   function visit(node: ts.Node) {
     if(node.decorators != null) {
        try {
-         for(const decorator of node.decorators) extractDecoratorInfo(decorator);
+         for(const decorator of node.decorators) visitDecorator(decorator);
        }
        catch(e) {
          console.log(e);
