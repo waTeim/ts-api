@@ -260,6 +260,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
       const expr = (<ts.Decorator>node).expression;
       let parentName = "unknown";
       let methodParameters:TypedId[] = [];
+      let doRuntimeCheck = false;
 
       switch(node.parent.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
@@ -267,6 +268,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
           const x = (<ts.FunctionDeclaration>(node.parent)).name;
 
           if(x != null) parentName = x.text;
+          doRuntimeCheck = true;
         }
         break;
         case ts.SyntaxKind.MethodDeclaration:
@@ -281,6 +283,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
 
 
           methodParameters = traverseParameterList((<any>typeNode).parameters);
+          doRuntimeCheck = true;
 
           //console.log(checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration)));
           //console.log(checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration));
@@ -288,10 +291,11 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
 
         }
         break;
+        case ts.SyntaxKind.ClassDeclaration: /* do nothing for classes yet */ break;
         default: throw("unknown decorated type (" + node.parent.kind + ")");
       }
 
-      if(ts.isCallExpression(expr)) {
+      if(ts.isCallExpression(expr) && doRuntimeCheck) {
         const cexpr = <ts.CallExpression>expr;
         const id = <ts.Identifier>cexpr.expression;
         let className = (<any>id.parent.parent.parent.parent).name.text;
