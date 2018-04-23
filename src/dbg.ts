@@ -10,15 +10,22 @@ interface TypedId {
   type: Object
 };
 
-interface DecoratedItem {
+interface DecoratedFunction {
   className: string,
   type: string,
   decorates: string,
   decoratorArgs: any[],
-  methodParameters: TypedId[]
+  methodParameters: TypedId[],
+  returnType: ts.TypeNode
 };
 
-let symtab = {};
+interface Controller {
+  name: string,
+  methods: DecoratedFunction[],
+  args: any[]
+}
+
+let symtab: any = {};
 let checker;
 
 function tokenObjectToJSON(o:any,jsDoc:any) {
@@ -144,7 +151,7 @@ function typeToJSON(typeDesc:any,jsDoc:any):Object {
   return res;
 }
 
-function parameterListToJSON(method: DecoratedItem):Object {
+function parameterListToJSON(method: DecoratedFunction):Object {
   let props = {};
   let parameterNames = [];
 
@@ -177,18 +184,50 @@ function traverseParameterList(parms: any): TypedId[] {
   return parameterList;
 }
 
-function genSymtabToSchemaDefinitions(): Object {
+function connectMethods(endpoints:DecoratedFunction[]): void {
+  for(let i = 0;i < endpoints.length;i++) {
+    if(endpoints[i].className != null) {
+      let controller = symtab[endpoints[i].className];
+            
+      if(controller != null) controller.methods.push(endpoints[i]);
+    }
+  }
+}
+
+function symtabToSchemaDefinitions(): Object {
   let res = {};
 
   for(let ikey in symtab) {
-    let required = [];
-    res[ikey] = { type:"object", properties:{} };
-    for(let mkey in symtab[ikey].members) {
-      res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
-      if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+    if(symtab[ikey].type == "type") {
+      let required = [];
+
+      res[ikey] = { type:"object", properties:{} };
+      for(let mkey in symtab[ikey].members) {
+        res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
+        if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+      }
+      res[ikey].required = required;
+      if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
     }
-    res[ikey].required = required;
-    if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
+  }
+  return res;
+}
+
+function symtabToControllerDefinitions(): Controller[] {
+  let res:Controller[] = [];
+
+  for(let ikey in symtab) {
+    if(symtab[ikey].type == "controller") {
+      let name = symtab[ikey].name;
+
+      if(symtab[ikey].args != null && symtab[ikey].args[0] != null) name = symtab[ikey].args[0];
+
+      res.push({ 
+        name:name,
+        methods: symtab[ikey].methods,
+        args: symtab[ikey].args
+      });
+    }
   }
   return res;
 }
@@ -207,7 +246,7 @@ function genArgsToSchema(parameterNames: any): string {
   return s;
 }
 
-function genMethodEntry(className,methodName,parameterNames,schema) {
+function genMethodEntry(className,methodName,parameterNames,schema): string {
   return `
 exports["${className}.${methodName}"] = { 
   schema:compositeWithDefinitions(${JSON.stringify(schema)}),
@@ -216,21 +255,87 @@ exports["${className}.${methodName}"] = {
 };`;
 }
 
-function genSource(items:DecoratedItem[],wstream: NodeJS.ReadWriteStream) {
-  let definitions = genSymtabToSchemaDefinitions();
-  let body = "";
+function addController(className:string): void {
+  if(symtab[className] != null) throw("multiple references to same class: " + className);
+  symtab[className] = { type:"controller", name:className, methods:[], args:[] };
+}
 
-  body += `const Ajv = require('ajv');`;
-  body += `let ajv = new Ajv();`;
-  body += `let definitions = ${JSON.stringify(definitions,null,2)}\n`;
-  body += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
-  wstream.write(body);
+function genSwaggerPreamble(def: any,projectName:string): void {
+  def.swagger = "2.0";
+  def.info = { version:"1.0", title:projectName };
+  def.schemes = [ "https" ];
+  def.produces = [ "application/json" ];
+  def.consumes = [ "application/json" ];
+}
+
+function genSwaggerTags(def: any,controllers:Controller[]): void {
+  let tags:any[] = [];
+
+  for(let i = 0;i < controllers.length;i++) {
+    tags.push({ name:controllers[i].name });
+  }
+  def.tags = tags;
+}
+
+function genSwaggerPaths(def: any,controllers:Controller[]): void {
+  let paths:Object = {};
+
+  for(let i = 0;i < controllers.length;i++) {
+    let methods: DecoratedFunction[] = controllers[i].methods;
+    let p1 = controllers[i].name;
+
+    for(let j = 0;j < methods.length;j++) {
+      let p2 = methods[j].decorates;
+      let parameters = [];
+      let methodType = methods[j].type;
+      let inputForm = "query";
+      let responses = {};
+      let path = { tags:[p1], operationId:p2, produces:[ "application/json" ], parameters:parameters, responses:responses };
+      let returnTypeDef = typeToJSON(methods[j].returnType,null);
+
+      responses["200"] = { description:"Successful response", schema:returnTypeDef };
+      if(methodType == "post") inputForm = "body";
+      for(let k = 0;k < methods[j].methodParameters.length;k++) {
+        let parameter = methods[j].methodParameters[k];
+        let parameterTypeDef = typeToJSON(parameter.type,null);
+
+        parameters.push({
+          name:parameter.id,
+          in:inputForm,
+          required:true,
+          schema:parameterTypeDef
+        });
+      }
+      paths['/' + p1 + '/' + p2] = {};
+      paths['/' + p1 + '/' + p2][methodType] = path;
+    }
+  }
+  def.paths = paths;
+}
+
+function genSources(items:DecoratedFunction[],packageName: string,checkFile: NodeJS.ReadWriteStream,swaggerFile: NodeJS.ReadWriteStream) {
+  let definitions = symtabToSchemaDefinitions();
+  let controllers:Controller[] = symtabToControllerDefinitions();
+  let swaggerDefinitions:any = {};
+  let checkBody = "";
+
+  genSwaggerPreamble(swaggerDefinitions,packageName);
+  genSwaggerTags(swaggerDefinitions,controllers);
+  genSwaggerPaths(swaggerDefinitions,controllers);
+  swaggerDefinitions.definitions = definitions;
+  checkBody += `const Ajv = require('ajv');`;
+  checkBody += `let ajv = new Ajv();`;
+  checkBody += `let definitions = ${JSON.stringify(definitions,null,2)}\n`;
+  checkBody += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
+  checkFile.write(checkBody);
+console.log("num items = ",items.length);
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
 
     if(x.parameterNames) x.schema.required = x.parameterNames;
-    wstream.write(genMethodEntry(x.className,x.method,x.parameterNames,x.schema));
+    checkFile.write(genMethodEntry(x.className,x.method,x.parameterNames,x.schema));
   }
+  swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
 }
 
 function getFilenames(patterns: string[]) {
@@ -244,10 +349,39 @@ function getFilenames(patterns: string[]) {
   return fa;
 }
 
-function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: NodeJS.ReadWriteStream): void {
+function genArgumentList(cexpr: ts.CallExpression) {
+  let argList = [];
+
+  for(const arg of cexpr.arguments) {
+    switch(arg.kind) {
+      case ts.SyntaxKind.StringLiteral:
+      {
+        let text = tsany.getTextOfNode(arg);
+        let s = text.replace(/^["']|["']$/g,'');
+
+        argList.push(s);
+      }
+      break;
+      case ts.SyntaxKind.NumericLiteral:
+      {
+        argList.push(parseFloat(tsany.getTextOfNode(arg)));
+      }
+      break;
+      case ts.SyntaxKind.Identifier:
+      {
+        argList.push(tsany.getTextOfNode(arg));
+      }
+      break;
+      default: throw("unknown type (" + arg.kind + ") in decorator argument list");
+    }
+  }
+  return argList;
+}
+
+function generate(patterns: string[],options: ts.CompilerOptions,packageName: string,checkFile: NodeJS.ReadWriteStream,swaggarFile: NodeJS.ReadWriteStream): void {
   let fa = getFilenames(patterns);
   let program = ts.createProgram(fa,options);
-  let output:DecoratedItem[] = [];
+  let endpoints:DecoratedFunction[] = [];
   let x = {};
 
   checker = program.getTypeChecker();
@@ -261,13 +395,16 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
       let parentName = "unknown";
       let methodParameters:TypedId[] = [];
       let doRuntimeCheck = false;
+      let doControllerEndpoint = false;
+      let returnType;
 
       switch(node.parent.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
         {
-          const x = (<ts.FunctionDeclaration>(node.parent)).name;
+          const name = (<ts.FunctionDeclaration>(node.parent)).name;
 
-          if(x != null) parentName = x.text;
+          if(name != null) parentName = name.text;
+          returnType = (<ts.FunctionDeclaration>node.parent).type;
           doRuntimeCheck = true;
         }
         break;
@@ -280,56 +417,41 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
           let symbol = checker.getSymbolAtLocation(x);
           let type = checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration);
           let typeNode = checker.typeToTypeNode(type,node.parent,ts.NodeBuilderFlags.IgnoreErrors|ts.NodeBuilderFlags.WriteTypeParametersInQualifiedName);
-
-
+          
+          returnType = (<ts.MethodDeclaration>node.parent).type;
           methodParameters = traverseParameterList((<any>typeNode).parameters);
           doRuntimeCheck = true;
-
-          //console.log(checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration)));
-          //console.log(checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration));
-          //console.log(checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration).parameters);
-
         }
         break;
-        case ts.SyntaxKind.ClassDeclaration: /* do nothing for classes yet */
+        case ts.SyntaxKind.ClassDeclaration:
         {
-          const x = (<ts.ClassDeclaration>(node.parent)).name;
+          const className = (<ts.ClassDeclaration>(node.parent)).name;
 
           ts.forEachChild(node.parent,visit);
+          addController(className.text);
+          doControllerEndpoint = true;
         }
         break;
         default: throw("unknown decorated type (" + node.parent.kind + ")");
       }
 
-      if(ts.isCallExpression(expr) && doRuntimeCheck) {
+      if(ts.isCallExpression(expr)) {
         const cexpr = <ts.CallExpression>expr;
         const id = <ts.Identifier>cexpr.expression;
-        let className = (<any>id.parent.parent.parent.parent).name.text;
-        let item:DecoratedItem = { className:className, decorates:parentName, type:id.text, decoratorArgs:[], methodParameters:methodParameters };
 
-        output.push(item);
-        for(const arg of cexpr.arguments) {
-          switch(arg.kind) {
-            case ts.SyntaxKind.StringLiteral:
-            {
-              let text = tsany.getTextOfNode(arg);
-              let s = text.replace(/^["']|["']$/g,'');
-              
-              item.decoratorArgs.push(s);
-            }
-            break;
-            case ts.SyntaxKind.NumericLiteral:
-            {
-              item.decoratorArgs.push(parseFloat(tsany.getTextOfNode(arg)));
-            }
-            break;
-            case ts.SyntaxKind.Identifier:
-            {
-              item.decoratorArgs.push(tsany.getTextOfNode(arg));
-            }
-            break;
-            default: throw("unknown type (" + arg.kind + ") in decorator argument list");
-          }
+        if(doRuntimeCheck) {
+          let className = (<any>id.parent.parent.parent.parent).name.text;
+          let item:DecoratedFunction = { className:className, decorates:parentName, type:id.text, decoratorArgs:genArgumentList(cexpr), methodParameters:methodParameters, returnType:returnType };
+
+console.log("item = ",item);
+
+          endpoints.push(item);
+        }
+        else if(doControllerEndpoint) {
+          const className = (<ts.ClassDeclaration>(node.parent)).name;
+          let controller = symtab[className.text];
+
+          controller.args = genArgumentList(cexpr);
         }
       }
     }
@@ -367,7 +489,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
                }
                tagSrc.push(" */");
                try {
-                 wstream.write(tagSrc.join('\n'));
+                 checkFile.write(tagSrc.join('\n'));
                  jsDoc.push(doctrine.parse(tagSrc.join('\n'),{ unwrap:true }));
                } 
                catch(e) { throw("invalid JSDoc: " + e); }
@@ -406,7 +528,7 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
           let comment = ts.displayPartsToString(symbol.getDocumentationComment());
           let tags = ts.displayPartsToString(symbol.getJsDocTags());
 
-          symtab[name.text] = { members:{}, jsDoc:null };
+          symtab[name.text] = { type:"type", members:{}, jsDoc:null };
           symtab[name.text].comment = comment;
           if(tags != "") {
             symtab[name.text].jsDoc = doctrine.parse(tags);
@@ -422,16 +544,16 @@ function generateChecks(patterns: string[],options: ts.CompilerOptions,wstream: 
     console.log("visiting file: ",sourceFile.fileName);
     ts.forEachChild(sourceFile,visit);
   }
-  //fs.writeFileSync("checks.json",JSON.stringify(output,null,2));
-  genSource(output,wstream);
+  connectMethods(endpoints);
+  genSources(endpoints,packageName,checkFile,swaggarFile);
 }
 
 module.exports = {
-  generate:function(args,tsInclude,wstream) {
+  generate:function(args,tsInclude,packageName,checkFile,swaggerFile) {
     let src = process.argv.slice(2);
 
     if(src.length == 0) src = tsInclude;
-    generateChecks(src,{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },wstream);
+    generate(src,{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },packageName,checkFile,swaggerFile);
   }
 }
 
