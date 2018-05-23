@@ -292,7 +292,13 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
       let responses = {};
       let path = { tags:[p1], operationId:p2, produces:[ "application/json" ], parameters:parameters, responses:responses };
       let returnTypeDef = typeToJSON(methods[j].returnType,null);
+      let typename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
 
+      if(typename == "Promise") {
+        let promiseArg = (<any>methods[j].returnType).typeArguments[0];
+
+        returnTypeDef = typeToJSON(promiseArg,null);
+      }
       responses["200"] = { description:"Successful response", schema:returnTypeDef };
       if(methodType == "post") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
@@ -442,8 +448,6 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
         if(doRuntimeCheck) {
           let className = (<any>id.parent.parent.parent.parent).name.text;
           let item:DecoratedFunction = { className:className, decorates:parentName, type:id.text, decoratorArgs:genArgumentList(cexpr), methodParameters:methodParameters, returnType:returnType };
-
-console.log("item = ",item);
 
           endpoints.push(item);
         }
