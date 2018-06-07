@@ -64,12 +64,12 @@ function maptypeDescName(name: string): Object {
   return { "$ref":`#/definitions/${name}` };
 }
 
-function unionToJSON(typeDesc:any,jsDoc:any):Object {
+function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
    let unionDesc = <ts.UnionTypeNode>typeDesc;
    let res = { oneOf:[] };
 
    for(let i = 0;i < unionDesc.types.length;i++) {
-     let unionElement = typeToJSON(unionDesc.types[i],null);
+     let unionElement = typeToJSON(unionDesc.types[i],null,options);
 
      if(unionElement != null) res.oneOf.push(unionElement);
    }
@@ -114,15 +114,23 @@ function applyTag(schemaObject: any,tag: any): void {
    }
 }
 
-function typeToJSON(typeDesc:any,jsDoc:any):Object {
+function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   let res;
 
   if(typeDesc.constructor.name == 'NodeObject') {
     let unknown = false;
 
     switch(typeDesc.kind) {
-      case ts.SyntaxKind.ArrayType: res =  { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc) }; break;
-      case ts.SyntaxKind.TypeReference: res =  maptypeDescName(typeDesc.typeName.text); break;
+      case ts.SyntaxKind.ArrayType: res =  { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
+      case ts.SyntaxKind.TypeReference: 
+      {
+        res =  maptypeDescName(typeDesc.typeName.text);
+        if(res != null && res['$ref'] != null && options && options.expandRefs) {
+          if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+          res = symtab[typeDesc.typeName.text].def;
+        }
+      }
+      break;
       case ts.SyntaxKind.FunctionType: break;
       case ts.SyntaxKind.TypeQuery: res = null; break;
       case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc); break;
@@ -151,12 +159,12 @@ function typeToJSON(typeDesc:any,jsDoc:any):Object {
   return res;
 }
 
-function parameterListToJSON(method: DecoratedFunction):Object {
+function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
   let props = {};
   let parameterNames = [];
 
   for(let i = 0;i < method.methodParameters.length;i++) {
-    let jsonValue = typeToJSON(method.methodParameters[i].type,null);;
+    let jsonValue = typeToJSON(method.methodParameters[i].type,null,options);;
 
     if(jsonValue) props[method.methodParameters[i].id] = jsonValue;
   }
@@ -206,8 +214,9 @@ function symtabToSchemaDefinitions(): Object {
         res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
         if(!symtab[ikey].members[mkey].optional) required.push(mkey);
       }
-      res[ikey].required = required;
+      if(required.length > 0) res[ikey].required = required;
       if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
+      symtab[ikey].def = res[ikey];
     }
   }
   return res;
@@ -290,30 +299,34 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
       let methodType = methods[j].type;
       let inputForm = "query";
       let responses = {};
-      let path = { tags:[p1], operationId:p2, produces:[ "application/json" ], parameters:parameters, responses:responses };
+      let path = { tags:[p1], operationId:p2, produces:[ "application/json" ], responses:responses };
       let returnTypeDef = typeToJSON(methods[j].returnType,null);
       let typename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
 
       if(typename == "Promise") {
         let promiseArg = (<any>methods[j].returnType).typeArguments[0];
 
-        returnTypeDef = typeToJSON(promiseArg,null);
+        returnTypeDef = typeToJSON(promiseArg,null,{ expandRefs:true });
       }
       responses["200"] = { description:"Successful response", schema:returnTypeDef };
       if(methodType == "post") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
         let parameter = methods[j].methodParameters[k];
-        let parameterTypeDef = typeToJSON(parameter.type,null);
+        let parameterTypeDef = typeToJSON(parameter.type,null,{ expandRefs:true });
 
         parameters.push({
-          name:parameter.id,
           in:inputForm,
+          name:parameter.id,
           required:true,
           schema:parameterTypeDef
         });
       }
-      paths['/' + p1 + '/' + p2] = {};
-      paths['/' + p1 + '/' + p2][methodType] = path;
+
+      let pathId = '/' + p1 + '/' + p2;
+    
+      paths[pathId] = {};
+      paths[pathId].parameters = parameters;
+      paths[pathId][methodType] = path;
     }
   }
   def.paths = paths;
@@ -325,22 +338,21 @@ function genSources(items:DecoratedFunction[],packageName: string,checkFile: Nod
   let swaggerDefinitions:any = {};
   let checkBody = "";
 
-  genSwaggerPreamble(swaggerDefinitions,packageName);
-  genSwaggerTags(swaggerDefinitions,controllers);
-  genSwaggerPaths(swaggerDefinitions,controllers);
-  swaggerDefinitions.definitions = definitions;
   checkBody += `const Ajv = require('ajv');`;
   checkBody += `let ajv = new Ajv();`;
   checkBody += `let definitions = ${JSON.stringify(definitions,null,2)}\n`;
   checkBody += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
   checkFile.write(checkBody);
-console.log("num items = ",items.length);
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
 
     if(x.parameterNames) x.schema.required = x.parameterNames;
     checkFile.write(genMethodEntry(x.className,x.method,x.parameterNames,x.schema));
   }
+  genSwaggerPreamble(swaggerDefinitions,packageName);
+  genSwaggerTags(swaggerDefinitions,controllers);
+  genSwaggerPaths(swaggerDefinitions,controllers);
+  swaggerDefinitions.definitions = definitions;
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
 }
 
