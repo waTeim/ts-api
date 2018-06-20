@@ -55,13 +55,13 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
   else return res;
 }
 
-function maptypeDescName(name: string): Object {
+function maptypeDescName(docRoot: string,name: string): Object {
   if(name == "Object") return { type:"object" };
   if(name == "String") return { type:"string" };
   if(name == "Number") return { type:"number" };
   if(name == "Boolean") return { type:"boolean" };
   if(name == "Function") return null;
-  return { "$ref":`#/definitions/${name}` };
+  return { "$ref":`${docRoot}/${name}` };
 }
 
 function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
@@ -119,12 +119,14 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 
   if(typeDesc.constructor.name == 'NodeObject') {
     let unknown = false;
+    let docRoot = "#/definitions";
 
+    if(options != null && options.docRoot != null) docRoot = options.docRoot;
     switch(typeDesc.kind) {
       case ts.SyntaxKind.ArrayType: res =  { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
       case ts.SyntaxKind.TypeReference: 
       {
-        res =  maptypeDescName(typeDesc.typeName.text);
+        res =  maptypeDescName(docRoot,typeDesc.typeName.text);
         if(res != null && res['$ref'] != null && options && options.expandRefs) {
           if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
           res = symtab[typeDesc.typeName.text].def;
@@ -270,11 +272,11 @@ function addController(className:string): void {
 }
 
 function genSwaggerPreamble(def: any,projectName:string): void {
-  def.swagger = "2.0";
-  def.info = { version:"1.0", title:projectName };
-  def.schemes = [ "https" ];
-  def.produces = [ "application/json" ];
-  def.consumes = [ "application/json" ];
+  def.openapi = "3.0.0";
+  def.info = { version:"1.0.0", title:projectName };
+  //def.schemes = [ "https" ];
+  //def.produces = [ "application/json" ];
+  //def.consumes = [ "application/json" ];
 }
 
 function genSwaggerTags(def: any,controllers:Controller[]): void {
@@ -283,7 +285,7 @@ function genSwaggerTags(def: any,controllers:Controller[]): void {
   for(let i = 0;i < controllers.length;i++) {
     tags.push({ name:controllers[i].name });
   }
-  def.tags = tags;
+  //def.tags = tags;
 }
 
 function genSwaggerPaths(def: any,controllers:Controller[]): void {
@@ -299,33 +301,37 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
       let methodType = methods[j].type;
       let inputForm = "query";
       let responses = {};
-      let path = { tags:[p1], operationId:p2, produces:[ "application/json" ], responses:responses };
+      let path = { tags:[p1], operationId:p2, parameters:parameters, responses:responses  };
       let returnTypeDef = typeToJSON(methods[j].returnType,null);
       let typename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
 
       if(typename == "Promise") {
         let promiseArg = (<any>methods[j].returnType).typeArguments[0];
 
-        returnTypeDef = typeToJSON(promiseArg,null,{ expandRefs:true });
+        returnTypeDef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
-      responses["200"] = { description:"Successful response", schema:returnTypeDef };
+      responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypeDef }}};
       if(methodType == "post") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
         let parameter = methods[j].methodParameters[k];
-        let parameterTypeDef = typeToJSON(parameter.type,null,{ expandRefs:true });
+        let parameterTypeDef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
 
-        parameters.push({
-          in:inputForm,
-          name:parameter.id,
-          required:true,
-          schema:parameterTypeDef
-        });
+        if(parameterTypeDef.type == "object") { 
+          for(let pname in parameterTypeDef.properties) {
+            let isRequired = false;
+      
+            for(let l = 0;l < parameterTypeDef.required.length;l++) {
+              if(parameterTypeDef.required[l] == pname) isRequired = true;
+            }
+            parameters.push({ name:pname, in:inputForm, schema:parameterTypeDef.properties[pname], required:isRequired });
+          }
+        }
+        else parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypeDef });
       }
 
       let pathId = '/' + p1 + '/' + p2;
     
       paths[pathId] = {};
-      paths[pathId].parameters = parameters;
       paths[pathId][methodType] = path;
     }
   }
@@ -352,7 +358,7 @@ function genSources(items:DecoratedFunction[],packageName: string,checkFile: Nod
   genSwaggerPreamble(swaggerDefinitions,packageName);
   genSwaggerTags(swaggerDefinitions,controllers);
   genSwaggerPaths(swaggerDefinitions,controllers);
-  swaggerDefinitions.definitions = definitions;
+  swaggerDefinitions.components = { schemas:definitions };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
 }
 
@@ -511,7 +517,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
                catch(e) { throw("invalid JSDoc: " + e); }
              }
 
-             let desc = typeToJSON(sig.type,jsDoc);
+             let desc = typeToJSON(sig.type,jsDoc,{ docRoot:"#/components/schemas" });
 
              if(desc) {
                symtab[parentName].members[propertyName] = { desc:desc, optional:optional };
