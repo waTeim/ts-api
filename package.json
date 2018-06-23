@@ -1,6 +1,6 @@
 {
   "name": "ts-api",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Create/augment REST API using the typescript parser-checker",
   "main": "lib/check.js",
   "repository": {

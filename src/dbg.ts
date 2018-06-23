@@ -149,6 +149,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 
   if(res) {
     let symbol = checker.getTypeFromTypeNode(typeDesc).symbol;
+
     if(jsDoc != null && jsDoc.length != 0) {
       for(let i = 0;i < jsDoc.length;i++) {
         if(jsDoc[i].tags != null && jsDoc[i].tags.length != 0) {
@@ -161,6 +162,30 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   return res;
 }
 
+function markUnionAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
+  let unionDesc = <ts.UnionTypeNode>typeDesc;
+
+  for(let i = 0;i < unionDesc.types.length;i++) markAsRelevant(unionDesc.types[i],null,options);
+}
+
+function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
+  if(typeDesc.constructor.name == 'NodeObject') {
+    switch(typeDesc.kind) {
+      case ts.SyntaxKind.ArrayType: markAsRelevant(typeDesc.elementType,jsDoc,options); break;
+      case ts.SyntaxKind.TypeReference:
+      {
+        if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+        symtab[typeDesc.typeName.text].relevant = true;
+      }
+      break;
+      case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc); break;
+      default: break;
+    }
+  }
+  else if(typeDesc.constructor.name != 'TokenObject') throw(`unknown type (${typeDesc.constructor.name})`);
+}
+
+
 function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
   let props = {};
   let parameterNames = [];
@@ -168,7 +193,10 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
   for(let i = 0;i < method.methodParameters.length;i++) {
     let jsonValue = typeToJSON(method.methodParameters[i].type,null,options);;
 
-    if(jsonValue) props[method.methodParameters[i].id] = jsonValue;
+    if(jsonValue) {
+      props[method.methodParameters[i].id] = jsonValue;
+      markAsRelevant(method.methodParameters[i].type,null,options);
+    }
   }
   for(let i = 0;i < method.methodParameters.length;i++) parameterNames[i] = method.methodParameters[i].id;
   return {
@@ -208,7 +236,7 @@ function symtabToSchemaDefinitions(): Object {
   let res = {};
 
   for(let ikey in symtab) {
-    if(symtab[ikey].type == "type") {
+    if(symtab[ikey].type == "type" && symtab[ikey].relevant) {
       let required = [];
 
       res[ikey] = { type:"object", properties:{} };
@@ -294,7 +322,8 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
   for(let i = 0;i < controllers.length;i++) {
     let methods: DecoratedFunction[] = controllers[i].methods;
     let p1 = controllers[i].name;
-
+    let comment = symtab[controllers[i].name];
+    
     for(let j = 0;j < methods.length;j++) {
       let p2 = methods[j].decorates;
       let parameters = [];
@@ -316,7 +345,7 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
         let parameter = methods[j].methodParameters[k];
         let parameterTypeDef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
 
-        if(parameterTypeDef.type == "object") { 
+        if(parameterTypeDef != null && parameterTypeDef.type == "object") { 
           for(let pname in parameterTypeDef.properties) {
             let isRequired = false;
       
@@ -339,22 +368,23 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
 }
 
 function genSources(items:DecoratedFunction[],packageName: string,checkFile: NodeJS.ReadWriteStream,swaggerFile: NodeJS.ReadWriteStream) {
-  let definitions = symtabToSchemaDefinitions();
   let controllers:Controller[] = symtabToControllerDefinitions();
   let swaggerDefinitions:any = {};
-  let checkBody = "";
+  let contents = `const Ajv = require('ajv');`;
 
-  checkBody += `const Ajv = require('ajv');`;
-  checkBody += `let ajv = new Ajv();`;
-  checkBody += `let definitions = ${JSON.stringify(definitions,null,2)}\n`;
-  checkBody += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
-  checkFile.write(checkBody);
+  contents += `let ajv = new Ajv();`;
+  contents += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
+  checkFile.write(contents);
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
 
     if(x.parameterNames) x.schema.required = x.parameterNames;
     checkFile.write(genMethodEntry(x.className,x.method,x.parameterNames,x.schema));
   }
+
+  let definitions = symtabToSchemaDefinitions();
+
+  checkFile.write(`\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`);
   genSwaggerPreamble(swaggerDefinitions,packageName);
   genSwaggerTags(swaggerDefinitions,controllers);
   genSwaggerPaths(swaggerDefinitions,controllers);
@@ -539,15 +569,19 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
        }
     }
     else if(isNodeExported(node)) {
+      let name = (<ts.ClassDeclaration>node).name;
+      let symbol;    
+      let comment;
+ 
+      if(name != null) symbol = checker.getSymbolAtLocation(name);
+      if(name != null) comment = ts.displayPartsToString(symbol.getDocumentationComment());
       if(node.kind == ts.SyntaxKind.ClassDeclaration) {
         ts.forEachChild(node,visit);
+        symtab[name.text] = { type:"type", members:{}, jsDoc:null };
+        symtab[name.text].comment = comment;
       }
       else if(node.kind == ts.SyntaxKind.InterfaceDeclaration) {
-        let name = (<ts.InterfaceDeclaration>node).name;
-
         if(name != null) {
-          let symbol = checker.getSymbolAtLocation(name);
-          let comment = ts.displayPartsToString(symbol.getDocumentationComment());
           let tags = ts.displayPartsToString(symbol.getJsDocTags());
 
           symtab[name.text] = { type:"type", members:{}, jsDoc:null };
