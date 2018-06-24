@@ -12,17 +12,20 @@ interface TypedId {
 
 interface DecoratedFunction {
   className: string,
-  type: string,
+  comment: string,
   decorates: string,
   decoratorArgs: any[],
   methodParameters: TypedId[],
-  returnType: ts.TypeNode
+  returnType: ts.TypeNode,
+  type: string
 };
 
 interface Controller {
-  name: string,
+  args: any[],
+  className: string,
+  comment: string,
   methods: DecoratedFunction[],
-  args: any[]
+  path: string
 }
 
 let symtab: any = {};
@@ -257,12 +260,15 @@ function symtabToControllerDefinitions(): Controller[] {
 
   for(let ikey in symtab) {
     if(symtab[ikey].type == "controller") {
-      let name = symtab[ikey].name;
+      let className = symtab[ikey].name;
+      let path = className;
+      let comment = symtab[className].comment;
 
-      if(symtab[ikey].args != null && symtab[ikey].args[0] != null) name = symtab[ikey].args[0];
-
+      if(symtab[ikey].args != null && symtab[ikey].args[0] != null) path = symtab[ikey].args[0];
       res.push({ 
-        name:name,
+        path:path,
+        className:className,
+        comment:comment,
         methods: symtab[ikey].methods,
         args: symtab[ikey].args
       });
@@ -299,19 +305,27 @@ function addController(className:string): void {
   symtab[className] = { type:"controller", name:className, methods:[], args:[] };
 }
 
-function genSwaggerPreamble(def: any,projectName:string): void {
+function genSwaggerPreamble(def: any,projectName:string,controllers:Controller[]): void {
+  let controllerComments = "";
+
+  for(let i = 0;i < controllers.length;i++) {
+    if(controllers[i].comment != null && controllers[i].comment != '') {
+      if(controllerComments.length != 0) controllerComments += "\n\n";
+      controllerComments += controllers[i].path + "\n\n";
+      controllerComments += controllers[i].comment;
+    }
+  }
   def.openapi = "3.0.0";
   def.info = { version:"1.0.0", title:projectName };
-  //def.schemes = [ "https" ];
-  //def.produces = [ "application/json" ];
-  //def.consumes = [ "application/json" ];
+
+  if(controllerComments.length != 0) def.info.description = controllerComments;
 }
 
 function genSwaggerTags(def: any,controllers:Controller[]): void {
   let tags:any[] = [];
 
   for(let i = 0;i < controllers.length;i++) {
-    tags.push({ name:controllers[i].name });
+    tags.push({ path:controllers[i].path });
   }
   //def.tags = tags;
 }
@@ -321,8 +335,8 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
 
   for(let i = 0;i < controllers.length;i++) {
     let methods: DecoratedFunction[] = controllers[i].methods;
-    let p1 = controllers[i].name;
-    let comment = symtab[controllers[i].name];
+    let p1 = controllers[i].path;
+    let comment = controllers[i].comment;
     
     for(let j = 0;j < methods.length;j++) {
       let p2 = methods[j].decorates;
@@ -330,15 +344,17 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
       let methodType = methods[j].type;
       let inputForm = "query";
       let responses = {};
-      let path = { tags:[p1], operationId:p2, parameters:parameters, responses:responses  };
+      let path:any = { tags:[p1], operationId:p2, parameters:parameters, responses:responses  };
       let returnTypeDef = typeToJSON(methods[j].returnType,null);
       let typename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
+      let methodComment = methods[j].comment;
 
       if(typename == "Promise") {
         let promiseArg = (<any>methods[j].returnType).typeArguments[0];
 
         returnTypeDef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
+      if(methodComment != null && methodComment != "") path.description = methodComment;
       responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypeDef }}};
       if(methodType == "post") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
@@ -385,7 +401,7 @@ function genSources(items:DecoratedFunction[],packageName: string,checkFile: Nod
   let definitions = symtabToSchemaDefinitions();
 
   checkFile.write(`\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`);
-  genSwaggerPreamble(swaggerDefinitions,packageName);
+  genSwaggerPreamble(swaggerDefinitions,packageName,controllers);
   genSwaggerTags(swaggerDefinitions,controllers);
   genSwaggerPaths(swaggerDefinitions,controllers);
   swaggerDefinitions.components = { schemas:definitions };
@@ -451,20 +467,26 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
       let doRuntimeCheck = false;
       let doControllerEndpoint = false;
       let returnType;
+      let comment;
 
       switch(node.parent.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
         {
-          const name = (<ts.FunctionDeclaration>(node.parent)).name;
+          let name = (<ts.FunctionDeclaration>(node.parent)).name;
 
-          if(name != null) parentName = name.text;
+          if(name != null) {
+            let symbol = checker.getSymbolAtLocation(name);
+
+            parentName = name.text;
+            comment = ts.displayPartsToString(symbol.getDocumentationComment());
+          }
           returnType = (<ts.FunctionDeclaration>node.parent).type;
           doRuntimeCheck = true;
         }
         break;
         case ts.SyntaxKind.MethodDeclaration:
         {  
-          const x = (<ts.FunctionDeclaration>(node.parent)).name;
+          let x = (<ts.FunctionDeclaration>(node.parent)).name;
 
           if(x != null) parentName = x.text;
 
@@ -472,6 +494,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
           let type = checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration);
           let typeNode = checker.typeToTypeNode(type,node.parent,ts.NodeBuilderFlags.IgnoreErrors|ts.NodeBuilderFlags.WriteTypeParametersInQualifiedName);
           
+          comment = ts.displayPartsToString(symbol.getDocumentationComment());
           returnType = (<ts.MethodDeclaration>node.parent).type;
           methodParameters = traverseParameterList((<any>typeNode).parameters);
           doRuntimeCheck = true;
@@ -479,10 +502,13 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
         break;
         case ts.SyntaxKind.ClassDeclaration:
         {
-          const className = (<ts.ClassDeclaration>(node.parent)).name;
+          let classNameNode = (<ts.ClassDeclaration>(node.parent)).name;
+          let className = classNameNode.text;
+          let symbol = checker.getSymbolAtLocation(classNameNode);
 
+          comment = ts.displayPartsToString(symbol.getDocumentationComment());
           ts.forEachChild(node.parent,visit);
-          addController(className.text);
+          addController(className);
           doControllerEndpoint = true;
         }
         break;
@@ -495,15 +521,24 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
 
         if(doRuntimeCheck) {
           let className = (<any>id.parent.parent.parent.parent).name.text;
-          let item:DecoratedFunction = { className:className, decorates:parentName, type:id.text, decoratorArgs:genArgumentList(cexpr), methodParameters:methodParameters, returnType:returnType };
+          let item:DecoratedFunction = { 
+            className:className,
+            comment:comment,
+            decorates:parentName,
+            decoratorArgs:genArgumentList(cexpr),
+            methodParameters:methodParameters,
+            returnType:returnType,
+            type:id.text
+          };
 
           endpoints.push(item);
         }
         else if(doControllerEndpoint) {
-          const className = (<ts.ClassDeclaration>(node.parent)).name;
-          let controller = symtab[className.text];
+          let classNameNode = (<ts.ClassDeclaration>(node.parent)).name;
+          let controller = symtab[classNameNode.text];
 
           controller.args = genArgumentList(cexpr);
+          controller.comment = comment;
         }
       }
     }
