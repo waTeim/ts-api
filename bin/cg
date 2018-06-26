@@ -40,20 +40,21 @@
     let packagePath;
     let tsInclude;
     let packageName;
+    let srcRoot;
 
-    let root = findRoot(process.cwd(),function(dir) {
+    let rootDir = findRoot(process.cwd(),function(dir) {
       return fs.existsSync(path.resolve(dir,"tsconfig.json"));
     });
 
-    if(root == null) root = process.cwd();
+    if(rootDir == null) rootDir = process.cwd();
     else {
-      tsconfigPath = path.resolve(root,"tsconfig.json");
-      packagePath = path.resolve(root,"package.json");
+      tsconfigPath = path.resolve(rootDir,"tsconfig.json");
+      packagePath = path.resolve(rootDir,"package.json");
     }
     if(program.root != null) {
-      root = program.root;
-      if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(root,"tsconfig.json");
-      if(fs.existsSync(path.resolve(dir,"package.json"))) packagePath = path.resolve(root,"package.json");
+      rootDir = program.root;
+      if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(rootDir,"tsconfig.json");
+      if(fs.existsSync(path.resolve(dir,"package.json"))) packagePath = path.resolve(rootDir,"package.json");
     }
 
     if(tsconfigPath != null) {
@@ -63,7 +64,9 @@
          let meta = JSON.parse(data);
   
          if(meta != null && meta.compilerOptions != null && meta.compilerOptions.outDir != null) 
-           outDir = path.resolve(root,meta.compilerOptions.outDir);
+           outDir = path.resolve(rootDir,meta.compilerOptions.outDir);
+         if(meta != null && meta.compilerOptions != null && meta.compilerOptions.rootDir != null) 
+           srcRoot = path.resolve(rootDir,meta.compilerOptions.rootDir);
          if(meta != null && meta.include != null) tsInclude = meta.include;
        }
        catch(e) {
@@ -84,7 +87,7 @@
        }
     }
 
-    if(outDir == null) outDir = root;
+    if(outDir == null) outDir = rootDir;
     if(packageName == null) packageName = "project";
 
     let docsPath = path.resolve(outDir,"docs");
@@ -101,10 +104,13 @@
 
     let checkPath = path.resolve(outDir,"__check.js");
     let swaggerPath = path.resolve(outDir,"docs/swagger.json");
+    let routesPath = path.resolve(outDir,"__routes.js");
     let checkFile = fs.createWriteStream(checkPath,{ mode:0o644 });
     let swaggerFile = fs.createWriteStream(swaggerPath,{ mode:0o644 });
+    let routesFile = fs.createWriteStream(routesPath,{ mode:0o644 });
+    let env = { programArgs:program.args, tsInclude:tsInclude, rootDir:rootDir, srcRoot:srcRoot, outDir:outDir, packageName:packageName };
 
-    dbg.generate(program.args,tsInclude,packageName,checkFile,swaggerFile); 
+    dbg.generate(env,checkFile,swaggerFile,routesFile); 
   });
 
   main();

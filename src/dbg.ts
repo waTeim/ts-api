@@ -2,6 +2,7 @@ import * as ts from "typescript";
 import * as fs from "fs";
 import * as glob from "glob";
 import * as doctrine from "doctrine";
+import * as path from "path";
 
 const tsany = ts as any;
 
@@ -23,6 +24,7 @@ interface DecoratedFunction {
 interface Controller {
   args: any[],
   className: string,
+  fileName: string,
   comment: string,
   methods: DecoratedFunction[],
   path: string
@@ -263,11 +265,13 @@ function symtabToControllerDefinitions(): Controller[] {
       let className = symtab[ikey].name;
       let path = className;
       let comment = symtab[className].comment;
+      let fileName = symtab[className].fileName;
 
       if(symtab[ikey].args != null && symtab[ikey].args[0] != null) path = symtab[ikey].args[0];
       res.push({ 
         path:path,
         className:className,
+        fileName:fileName,
         comment:comment,
         methods: symtab[ikey].methods,
         args: symtab[ikey].args
@@ -300,9 +304,9 @@ exports["${className}.${methodName}"] = {
 };`;
 }
 
-function addController(className:string): void {
+function addController(className:string,fileName: string,comment: string): void {
   if(symtab[className] != null) throw("multiple references to same class: " + className);
-  symtab[className] = { type:"controller", name:className, methods:[], args:[] };
+  symtab[className] = { type:"controller", name:className, fileName:fileName, comment:comment, methods:[], args:[] };
 }
 
 function genSwaggerPreamble(def: any,projectName:string,controllers:Controller[]): void {
@@ -345,33 +349,40 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
       let inputForm = "query";
       let responses = {};
       let path:any = { tags:[p1], operationId:p2, parameters:parameters, responses:responses  };
-      let returnTypeDef = typeToJSON(methods[j].returnType,null);
-      let typename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
       let methodComment = methods[j].comment;
+      let returnTypedef;
+      let returnTypename;
 
-      if(typename == "Promise") {
+      if(methods[j].returnType != null) {
+        returnTypedef = typeToJSON(methods[j].returnType,null);
+        returnTypename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
+      }
+      if(returnTypename == "Promise") {
         let promiseArg = (<any>methods[j].returnType).typeArguments[0];
 
-        returnTypeDef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+        returnTypedef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
       if(methodComment != null && methodComment != "") path.description = methodComment;
-      responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypeDef }}};
+      if(returnTypedef != null) responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
+      else responses["204"] = { description:"Successful response" };
       if(methodType == "post") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
         let parameter = methods[j].methodParameters[k];
-        let parameterTypeDef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+        let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
 
-        if(parameterTypeDef != null && parameterTypeDef.type == "object") { 
-          for(let pname in parameterTypeDef.properties) {
+        if(parameterTypedef != null && parameterTypedef.type == "object") { 
+          for(let pname in parameterTypedef.properties) {
             let isRequired = false;
       
-            for(let l = 0;l < parameterTypeDef.required.length;l++) {
-              if(parameterTypeDef.required[l] == pname) isRequired = true;
+            if(parameterTypedef.required != null) {
+              for(let l = 0;l < parameterTypedef.required.length;l++) {
+                if(parameterTypedef.required[l] == pname) isRequired = true;
+              }
             }
-            parameters.push({ name:pname, in:inputForm, schema:parameterTypeDef.properties[pname], required:isRequired });
+            parameters.push({ name:pname, in:inputForm, schema:parameterTypedef.properties[pname], required:isRequired });
           }
         }
-        else parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypeDef });
+        else parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypedef });
       }
 
       let pathId = '/' + p1 + '/' + p2;
@@ -383,7 +394,47 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
   def.paths = paths;
 }
 
-function genSources(items:DecoratedFunction[],packageName: string,checkFile: NodeJS.ReadWriteStream,swaggerFile: NodeJS.ReadWriteStream) {
+function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
+  let output = `"use strict";\n\n`;
+  output += `const express = require('express');\n\n`;
+  output += `module.exports = function(app) {\n`;
+  output += `  let rmeta = {};\n\n`;
+
+  for(let i = 0;i < controllers.length;i++) {
+    let fileName = path.resolve(controllers[i].fileName);
+
+    if(srcRoot != null) {
+      fileName = fileName.replace(srcRoot + '/','');
+      fileName = fileName.replace(path.extname(fileName),"");
+      output += `  rmeta['${controllers[i].className}'] = { controller:require('${fileName}')(app), router:express.Router() };\n`;
+    }
+    else output += `  rmeta['${controllers[i].className}'] = { controller:require('${path.basename(fileName)}'), router:express.Router() };\n`;
+  }
+
+  for(let i = 0;i < endpoints.length;i++) {
+    let rfunc = endpoints[i].type;
+    let endpointName = endpoints[i].decorates;
+    let path = endpointName;
+
+    if(endpoints[i].decoratorArgs.length != 0) path = endpoints[i].decoratorArgs[0];
+
+    output += `\n`;
+    output += `  rmeta['${endpoints[i].className}'].router.${rfunc}('/${path}', async(req,res) => {\n`;
+    if(rfunc == 'get') output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.query);\n\n`;
+    else output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.body);\n\n`;
+    output += `    res.send(x);\n`;
+    output += `  }\n`;
+  }
+
+  for(let i = 0;i < controllers.length;i++)
+    output += `  app.use('${controllers[i].path}',rmeta['${controllers[i].className}'].router);\n`;
+
+  output += `}\n`;
+
+  routesFile.write(output);
+}
+
+function genSources(items:DecoratedFunction[],packageName: string,srcRoot: string,checkFile: NodeJS.ReadWriteStream,swaggerFile: NodeJS.ReadWriteStream,routesFile: NodeJS.ReadWriteStream) {
   let controllers:Controller[] = symtabToControllerDefinitions();
   let swaggerDefinitions:any = {};
   let contents = `const Ajv = require('ajv');`;
@@ -406,6 +457,7 @@ function genSources(items:DecoratedFunction[],packageName: string,checkFile: Nod
   genSwaggerPaths(swaggerDefinitions,controllers);
   swaggerDefinitions.components = { schemas:definitions };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
+  genRoutes(items,controllers,srcRoot,routesFile);
 }
 
 function getFilenames(patterns: string[]) {
@@ -448,7 +500,7 @@ function genArgumentList(cexpr: ts.CallExpression) {
   return argList;
 }
 
-function generate(patterns: string[],options: ts.CompilerOptions,packageName: string,checkFile: NodeJS.ReadWriteStream,swaggarFile: NodeJS.ReadWriteStream): void {
+function generate(patterns: string[],options: ts.CompilerOptions,packageName: string,srcRoot: string,checkFile: NodeJS.ReadWriteStream,swaggarFile: NodeJS.ReadWriteStream,routesFile: NodeJS.ReadWriteStream): void {
   let fa = getFilenames(patterns);
   let program = ts.createProgram(fa,options);
   let endpoints:DecoratedFunction[] = [];
@@ -505,10 +557,11 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
           let classNameNode = (<ts.ClassDeclaration>(node.parent)).name;
           let className = classNameNode.text;
           let symbol = checker.getSymbolAtLocation(classNameNode);
+          let source = <ts.SourceFile>(node.parent.parent);
 
           comment = ts.displayPartsToString(symbol.getDocumentationComment());
           ts.forEachChild(node.parent,visit);
-          addController(className);
+          addController(className,source.fileName,comment);
           doControllerEndpoint = true;
         }
         break;
@@ -538,7 +591,6 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
           let controller = symtab[classNameNode.text];
 
           controller.args = genArgumentList(cexpr);
-          controller.comment = comment;
         }
       }
     }
@@ -636,15 +688,15 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
     ts.forEachChild(sourceFile,visit);
   }
   connectMethods(endpoints);
-  genSources(endpoints,packageName,checkFile,swaggarFile);
+  genSources(endpoints,packageName,srcRoot,checkFile,swaggarFile,routesFile);
 }
 
 module.exports = {
-  generate:function(args,tsInclude,packageName,checkFile,swaggerFile) {
-    let src = process.argv.slice(2);
+  generate:function(env,checkFile,swaggerFile,routesFile) {
+    let src = env.programArgs.slice(2);
 
-    if(src.length == 0) src = tsInclude;
-    generate(src,{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },packageName,checkFile,swaggerFile);
+    if(src.length == 0) src = env.tsInclude;
+    generate(src,{ target:ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, experimentalDecorators:true },env.packageName,env.srcRoot,checkFile,swaggerFile,routesFile);
   }
 }
 
