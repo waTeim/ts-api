@@ -1,8 +1,8 @@
 {
   "name": "ts-api",
-  "version": "0.10.0",
+  "version": "1.0.0",
   "description": "Create/augment REST API using the typescript parser-checker",
-  "main": "lib/check.js",
+  "main": "lib",
   "repository": {
     "type": "git",
     "url": "git@github.com:waTeim/ts-api.git"
@@ -14,7 +14,8 @@
     "doctrine": "x",
     "find-root": "x",
     "glob": "^7.1.2",
-    "typescript": "2.7.2"
+    "typescript": "2.7.2",
+    "uuid": "^3.3.2"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

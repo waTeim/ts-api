@@ -209,7 +209,7 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
     method: `${method.decorates}`,
     parameterNames:parameterNames,
     schema: {
-      "$schema": "http://json-schema.org/draft-07/schema#",
+      //"$schema": "http://json-schema.org/draft-07/schema#",
       title: `${method.decorates} plist`,
       description: `Parameter list for ${method.decorates}`,
       type: "object",
@@ -298,9 +298,9 @@ function genArgsToSchema(parameterNames: any): string {
 function genMethodEntry(className,methodName,parameterNames,schema): string {
   return `
 exports["${className}.${methodName}"] = { 
-  schema:compositeWithDefinitions(${JSON.stringify(schema)}),
+  schema:compositeWithDefinitions(${JSON.stringify(schema,null,2)}),
   argsToSchema:${genArgsToSchema(parameterNames)},
-  validate:ajv.compile(compositeWithDefinitions(${JSON.stringify(schema)}))
+  validate:ajv.compile(compositeWithDefinitions(${JSON.stringify(schema,null,2)}))
 };`;
 }
 
@@ -396,20 +396,27 @@ function genSwaggerPaths(def: any,controllers:Controller[]): void {
 
 function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
   let output = `"use strict";\n\n`;
-  output += `const express = require('express');\n\n`;
-  output += `module.exports = function(app) {\n`;
-  output += `  let rmeta = {};\n\n`;
 
+  output += `const express = require('express');\n`;
+  output += `const api = require('ts-api');\n`;
+  output += `const EndpointCheckBinding = api.EndpointCheckBinding;\n`;
   for(let i = 0;i < controllers.length;i++) {
     let fileName = path.resolve(controllers[i].fileName);
 
     if(srcRoot != null) {
       fileName = fileName.replace(srcRoot + '/','');
       fileName = fileName.replace(path.extname(fileName),"");
-      output += `  rmeta['${controllers[i].className}'] = { controller:require('${fileName}')(app), router:express.Router() };\n`;
+      output += `const ${controllers[i].className}Module = require('./${fileName}');\n`;
     }
-    else output += `  rmeta['${controllers[i].className}'] = { controller:require('${path.basename(fileName)}'), router:express.Router() };\n`;
+    else output += `const ${controllers[i].className}Module = require('./${path.basename(fileName)}');\n`;
   }
+
+  output += `\nlet binding = new EndpointCheckBinding(require('./__check'));\n`;
+  output += `\nmodule.exports = function(app) {\n`;
+  output += `  let rmeta = {};\n\n`;
+
+  for(let i = 0;i < controllers.length;i++)
+    output += `  rmeta['${controllers[i].className}'] = { controller:new ${controllers[i].className}Module.default(app,binding), router:express.Router() };\n`;
 
   for(let i = 0;i < endpoints.length;i++) {
     let rfunc = endpoints[i].type;
@@ -423,11 +430,11 @@ function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoo
     if(rfunc == 'get') output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.query);\n\n`;
     else output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.body);\n\n`;
     output += `    res.send(x);\n`;
-    output += `  }\n`;
+    output += `  });\n`;
   }
 
   for(let i = 0;i < controllers.length;i++)
-    output += `  app.use('${controllers[i].path}',rmeta['${controllers[i].className}'].router);\n`;
+    output += `  app.use('/${controllers[i].path}',rmeta['${controllers[i].className}'].router);\n`;
 
   output += `}\n`;
 
@@ -437,21 +444,30 @@ function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoo
 function genSources(items:DecoratedFunction[],packageName: string,srcRoot: string,checkFile: NodeJS.ReadWriteStream,swaggerFile: NodeJS.ReadWriteStream,routesFile: NodeJS.ReadWriteStream) {
   let controllers:Controller[] = symtabToControllerDefinitions();
   let swaggerDefinitions:any = {};
-  let contents = `const Ajv = require('ajv');`;
+  let contents_part1 = '';
+  let contents_part2 = '';
+  let contents_part3 = '';
 
-  contents += `let ajv = new Ajv();`;
-  contents += `function compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }`;
-  checkFile.write(contents);
+  contents_part1 += `\n\nconst Ajv = require('ajv');\n`;
+  contents_part1 += `\nlet ajv = new Ajv();\n`;
+
+  contents_part3 += `\nfunction compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }\n`;
+
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
 
     if(x.parameterNames) x.schema.required = x.parameterNames;
-    checkFile.write(genMethodEntry(x.className,x.method,x.parameterNames,x.schema));
+    contents_part3 += genMethodEntry(x.className,x.method,x.parameterNames,x.schema);
   }
 
   let definitions = symtabToSchemaDefinitions();
 
-  checkFile.write(`\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`);
+  contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`;
+
+  checkFile.write(contents_part1);
+  checkFile.write(contents_part2);
+  checkFile.write(contents_part3);
+
   genSwaggerPreamble(swaggerDefinitions,packageName,controllers);
   genSwaggerTags(swaggerDefinitions,controllers);
   genSwaggerPaths(swaggerDefinitions,controllers);

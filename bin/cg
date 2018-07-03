@@ -1,30 +1,30 @@
 #!/usr/bin/env node --use_strict
 
-/*  Top level dbg driver                                       */
-/*  Cheaply copied from dbg with some of the keywords replaced */
+/*  Top level ts-aspi analyzer program                         */
+/*  Cheaply copied from npm with some of the keywords replaced */
 
 ;(function () {
-  // windows: running "dbg blah" in this folder will invoke WSH, not node.
+  // windows: running "cg blah" in this folder will invoke WSH, not node.
   /*global WScript*/
   if (typeof WScript !== 'undefined') {
     WScript.echo(
-      'dbg does not work when run\n' +
+      'cg does not work when run\n' +
         'with the Windows Scripting Host\n\n' +
         "'cd' to a different directory,\n" +
-        "or type 'dbg.cmd <args>',\n" +
-        "or type 'node dbg <args>'."
+        "or type 'cg.cmd <args>',\n" +
+        "or type 'node cg <args>'."
     )
     WScript.quit(1)
     return
   }
 
-  process.title = 'dbg'
+  process.title = 'cg'
 
   const path = require('path')
   const fs = require('fs');
   const Promise = require('bluebird');
   const findRoot = require('find-root');
-  const dbg = require('../lib/dbg.js')
+  const analyzer = require('../lib/analyzer.js')
 
   let program = require('commander');
 
@@ -110,7 +110,7 @@
     let routesFile = fs.createWriteStream(routesPath,{ mode:0o644 });
     let env = { programArgs:program.args, tsInclude:tsInclude, rootDir:rootDir, srcRoot:srcRoot, outDir:outDir, packageName:packageName };
 
-    dbg.generate(env,checkFile,swaggerFile,routesFile); 
+    analyzer.generate(env,checkFile,swaggerFile,routesFile); 
   });
 
   main();
