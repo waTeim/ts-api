@@ -16,4 +16,6 @@ export default class ControllerBase {
     this.app = app;
     this.binding = binding;
   }
+ 
+  getEndpointSignatureBinding() { return this.binding; }
 }

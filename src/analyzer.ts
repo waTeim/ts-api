@@ -49,7 +49,7 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     }
     break;
     case ts.SyntaxKind.BooleanKeyword: res =  { type:"boolean" }; break;
-    case ts.SyntaxKind.AnyKeyword: res = { type:"object" }; break;
+    case ts.SyntaxKind.AnyKeyword: res = { oneOf:[ { type:"object" }, { type:"number" }, { type:"string" }]}; break;
     case ts.SyntaxKind.NullKeyword: res = { type:"null" }; break;
     case ts.SyntaxKind.UndefinedKeyword: break;
     case ts.SyntaxKind.SymbolKeyword: break;
@@ -449,7 +449,7 @@ function genSources(items:DecoratedFunction[],packageName: string,srcRoot: strin
   let contents_part3 = '';
 
   contents_part1 += `\n\nconst Ajv = require('ajv');\n`;
-  contents_part1 += `\nlet ajv = new Ajv();\n`;
+  contents_part1 += `\nlet ajv = new Ajv({ coerceTypes: true });\n`;
 
   contents_part3 += `\nfunction compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }\n`;
 
