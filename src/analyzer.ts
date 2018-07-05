@@ -400,6 +400,9 @@ function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoo
   output += `const express = require('express');\n`;
   output += `const api = require('ts-api');\n`;
   output += `const EndpointCheckBinding = api.EndpointCheckBinding;\n`;
+  output += `const error_response = api.response.error;`;
+  output += `const success_response = api.response.success;`;
+
   for(let i = 0;i < controllers.length;i++) {
     let fileName = path.resolve(controllers[i].fileName);
 
@@ -416,7 +419,7 @@ function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoo
   output += `  let rmeta = {};\n\n`;
 
   for(let i = 0;i < controllers.length;i++)
-    output += `  rmeta['${controllers[i].className}'] = { controller:new ${controllers[i].className}Module.default(app,binding), router:express.Router() };\n`;
+    output += `  rmeta['${controllers[i].className}'] = { router:express.Router() };\n`;
 
   for(let i = 0;i < endpoints.length;i++) {
     let rfunc = endpoints[i].type;
@@ -426,10 +429,14 @@ function genRoutes(endpoints:DecoratedFunction[],controllers:Controller[],srcRoo
     if(endpoints[i].decoratorArgs.length != 0) path = endpoints[i].decoratorArgs[0];
 
     output += `\n`;
-    output += `  rmeta['${endpoints[i].className}'].router.${rfunc}('/${path}', async(req,res) => {\n`;
-    if(rfunc == 'get') output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.query);\n\n`;
-    else output += `    const x = await rmeta['${endpoints[i].className}'].controller.${endpointName}(req.body);\n\n`;
-    output += `    res.send(x);\n`;
+    output += `  rmeta['${endpoints[i].className}'].router.${rfunc}('/${path}', async(req,res,next) => {\n`;
+    output += `    try {\n`;
+    output += `      const controller = new ${endpoints[i].className}Module.default(app,binding,req,res,next);\n`;
+    if(rfunc == 'get') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
+    else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
+    output += `      success_response(x,req,res,next);\n`;
+    output += `    }\n`;
+    output += `    catch(e) { error_response(e,req,res,next); }\n`;
     output += `  });\n`;
   }
 
@@ -510,6 +517,7 @@ function genArgumentList(cexpr: ts.CallExpression) {
         argList.push(tsany.getTextOfNode(arg));
       }
       break;
+      case ts.SyntaxKind.FunctionExpression: console.log("ignoring function in decorator argument list"); break;
       default: throw("unknown type (" + arg.kind + ") in decorator argument list");
     }
   }

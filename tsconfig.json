@@ -1,11 +1,13 @@
 {
   "baseUrl": "types",
   "compilerOptions": {
-    "target":"ES5",
+    "declaration": true,
+    "declarationDir": "lib",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "outDir": "lib",
-    "sourceMap": true
+    "sourceMap": true,
+    "target":"ES5"
   },
   "include":[ "src/**/*" ],
   "typeRoots": ["types"]

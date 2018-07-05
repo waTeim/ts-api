@@ -9,12 +9,19 @@ import EndpointCheckBinding from './EndpointCheckBinding';
  * class. Derived classes will automatically be constructed from these values.
  */
 export default class ControllerBase {
-  app: any;
   binding: EndpointCheckBinding;
 
-  constructor(app: any,binding: EndpointCheckBinding) {
+  public app: any;
+  public req: any;
+  public res: any;
+  public next: Function;
+
+  constructor(app: any,binding: EndpointCheckBinding,req:any,res:any,next:Function) {
     this.app = app;
     this.binding = binding;
+    this.req = req;
+    this.res = res;
+    this.next = next;
   }
  
   getEndpointSignatureBinding() { return this.binding; }
