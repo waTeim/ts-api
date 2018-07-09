@@ -318,23 +318,24 @@ function genArgsToSchema(parameterNames: any): string {
   let s = '';
 
   s += `function(a) {\n`;
-  s += `let o = {};\n`;
-  s += `console.log(a);\n`;
+  s += `    let o = {};\n\n`;
   for(let i = 0;i < parameterNames.length;i++) {
      s += `    o['${parameterNames[i]}'] = a[${i}];\n`;
   }
-  s += `  console.log(o);\n`;
-  s += `  return o;\n  }\n`;
+  s += `    return o;\n  }`;
   return s;
 }
 
 function genMethodEntry(className,methodName,parameterNames,schema): string {
-  return `
-exports["${className}.${methodName}"] = { 
-  schema:compositeWithDefinitions(${JSON.stringify(schema,null,2)}),
-  argsToSchema:${genArgsToSchema(parameterNames)},
-  validate:ajv.compile(compositeWithDefinitions(${JSON.stringify(schema,null,2)}))
-};`;
+  let s = `\nexports["${className}.${methodName}"] = {\n`;
+  let schemaFormatted = JSON.stringify(schema,null,2);
+
+  schemaFormatted = schemaFormatted.replace(/\n/g,"\n  ");
+  s += `  schema:compositeWithDefinitions(${schemaFormatted}),\n`;
+  s += `  argsToSchema:${genArgsToSchema(parameterNames)},\n`;
+  s += `  validate:ajv.compile(compositeWithDefinitions(${schemaFormatted}))\n`;
+  s += `};\n`;
+  return s;
 }
 
 function addController(className:string,fileName: string,comment: string): void {
