@@ -137,13 +137,20 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 
     if(options != null && options.docRoot != null) docRoot = options.docRoot;
     switch(typeDesc.kind) {
-      case ts.SyntaxKind.ArrayType: res =  { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
+      case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
       case ts.SyntaxKind.TypeReference: 
       {
-        res =  maptypeDescName(docRoot,typeDesc.typeName.text);
-        if(res != null && res['$ref'] != null && options && options.expandRefs) {
-          if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
-          res = symtab[typeDesc.typeName.text].def;
+        if(typeDesc.typeName.text == "Array") {
+          let arg = (<any>typeDesc).typeArguments[0];
+
+          res = { type:"array", items:typeToJSON(arg,jsDoc,options) }
+        }
+        else {
+          res =  maptypeDescName(docRoot,typeDesc.typeName.text);
+          if(res != null && res['$ref'] != null && options && options.expandRefs) {
+            if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+            res = symtab[typeDesc.typeName.text].def;
+          }
         }
       }
       break;
@@ -188,15 +195,23 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
       case ts.SyntaxKind.ArrayType: markAsRelevant(typeDesc.elementType,jsDoc,options); break;
       case ts.SyntaxKind.TypeReference:
       {
-        if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
-        symtab[typeDesc.typeName.text].relevant = true;
+        let typeName = typeDesc.typeName.text;
+        let args = (<any>typeDesc).typeArguments;
+
+        if(symtab[typeName] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+        symtab[typeName].relevant = true;
+        if(args != null) {
+          for(let i = 0;i < args.length;i++) markAsRelevant(args[i],jsDoc,options);
+        }
+        for(let key in symtab[typeName].members) {
+          markAsRelevant(symtab[typeName].members[key].type,jsDoc,options);
+        }
       }
       break;
       case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc); break;
       default: break;
     }
   }
-  else if(typeDesc.constructor.name != 'TokenObject') throw(`unknown type (${typeDesc.constructor.name})`);
 }
 
 
@@ -212,6 +227,7 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
       markAsRelevant(method.methodParameters[i].type,null,options);
     }
   }
+  markAsRelevant(method.returnType,null,options);
   for(let i = 0;i < method.methodParameters.length;i++) parameterNames[i] = method.methodParameters[i].id;
   return {
     className: `${method.className}`,
@@ -603,7 +619,7 @@ function genArgumentList(cexpr: ts.CallExpression) {
         argList.push(tsany.getTextOfNode(arg));
       }
       break;
-      case ts.SyntaxKind.FunctionExpression: console.log("ignoring function in decorator argument list"); break;
+      case ts.SyntaxKind.FunctionExpression: console.log("   ignoring function in decorator argument list"); break;
       default: throw("unknown type (" + arg.kind + ") in decorator argument list");
     }
   }
@@ -757,7 +773,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
              let desc = typeToJSON(sig.type,jsDoc,{ docRoot:"#/components/schemas" });
 
              if(desc) {
-               symtab[parentName].members[propertyName] = { desc:desc, optional:optional };
+               symtab[parentName].members[propertyName] = { desc:desc, type:sig.type, optional:optional };
              }
            }
          }
