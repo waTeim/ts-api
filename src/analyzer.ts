@@ -464,7 +464,6 @@ function genSwaggerRoutes(def: any,routers:Router[],controllers:Controller[]): v
   }
 }
 
-
 function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
   let output = `"use strict";\n\n`;
 
@@ -491,11 +490,12 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     if(srcRoot != null) {
       fileName = fileName.replace(srcRoot + '/','');
       fileName = fileName.replace(path.extname(fileName),"");
-      output += `const ${routers[i].className}= require('./${fileName}');\n`;
+      output += `const ${routers[i].className} = require('./${fileName}');\n`;
     }
-    else output += `const ${routers[i].className}= require('./${path.basename(fileName)}');\n`;
+    else output += `const ${routers[i].className} = require('./${path.basename(fileName)}');\n`;
   }
-
+  output += `const swaggerUi = api.swaggerUi;\n`;
+  output += `const swaggerDocument = require('./docs/swagger.json');\n`;
   output += `\nlet binding = new EndpointCheckBinding(require('./__check'));\n`;
   output += `\nmodule.exports = function(app) {\n`;
   output += `  let pods = [];\n`;
@@ -541,6 +541,7 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
 
       output += `  app.use('/${prefix}/${path}',pod.getRouter('${controllers[j].className}'));\n`;
     }
+    output += `  app.use('/${prefix}/docs',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
   }
 
   output += `  return pods;\n`;
