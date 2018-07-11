@@ -484,67 +484,41 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     else output += `const ${controllers[i].className}Module = require('./${path.basename(fileName)}');\n`;
   }
 
-  for(let i = 0;i < routers.length;i++) {
-    let fileName = path.resolve(routers[i].fileName);
-
-    if(srcRoot != null) {
-      fileName = fileName.replace(srcRoot + '/','');
-      fileName = fileName.replace(path.extname(fileName),"");
-      output += `const ${routers[i].className} = require('./${fileName}');\n`;
-    }
-    else output += `const ${routers[i].className} = require('./${path.basename(fileName)}');\n`;
-  }
   output += `const swaggerUi = api.swaggerUi;\n`;
   output += `const swaggerDocument = require('./docs/swagger.json');\n`;
   output += `\nlet binding = new EndpointCheckBinding(require('./__check'));\n`;
-  output += `\nmodule.exports = function(app) {\n`;
-  output += `  let pods = [];\n`;
+  output += `\nmodule.exports = function(apex) {\n`;
+  for(let j = 0;j < controllers.length;j++)
+    output += `  apex.addRouter('${controllers[j].className}');\n`;
 
-  for(let i = 0;i < routers.length;i++) {
-    let prefix = routers[i].path;
-
-    if(prefix.charAt(0) == '/') prefix = prefix.substring(1);
-    if(prefix.charAt(prefix.length - 1) == '.') prefix = prefix.substring(0,prefix.length - 1);
-
-    if(i != 0) output += '\n';
-    output += `  let pod = new ${routers[i].className}.default(app);\n\n`;
-
-    output += `  pods.push(pod);\n`;
-
-    for(let j = 0;j < controllers.length;j++)
-      output += `  pod.addRouter('${controllers[j].className}');\n`;
-
-    for(let j = 0;j < endpoints.length;j++) {
-      let rfunc = endpoints[j].type;
-      let endpointName = endpoints[j].decorates;
-      let path = endpointName;
+  for(let j = 0;j < endpoints.length;j++) {
+    let rfunc = endpoints[j].type;
+    let endpointName = endpoints[j].decorates;
+    let path = endpointName;
   
-      if(endpoints[j].decoratorArgs.length != 0) path = endpoints[j].decoratorArgs[0];
+    if(endpoints[j].decoratorArgs.length != 0) path = endpoints[j].decoratorArgs[0];
 
-      output += `\n`;
-      output += `  pod.getRouter('${endpoints[j].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
-      output += `    try {\n`;
-      output += `      const controller = new ${endpoints[j].className}Module.default(app,binding,req,res,next);\n`;
-      if(rfunc == 'get') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
-      else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
-      output += `      success_response(x,req,res,next);\n`;
-      output += `    }\n`;
-      output += `    catch(e) { error_response(e,req,res,next); }\n`;
-      output += `  });\n`;
-    }
-
-    for(let j = 0;j < controllers.length;j++) {
-      let path = controllers[j].path;
-
-      if(path.charAt(0) == '/') path = path.substring(1);
-      if(path.charAt(prefix.length - 1) == '.') path = prefix.substring(0,path.length - 1);
-
-      output += `  app.use('/${prefix}/${path}',pod.getRouter('${controllers[j].className}'));\n`;
-    }
-    output += `  app.use('/${prefix}/docs',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+    output += `\n`;
+    output += `  apex.getRouter('${endpoints[j].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
+    output += `    try {\n`;
+    output += `      const controller = new ${endpoints[j].className}Module.default(app,binding,req,res,next);\n`;
+    if(rfunc == 'get') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
+    else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
+    output += `      success_response(x,req,res,next);\n`;
+    output += `    }\n`;
+    output += `    catch(e) { error_response(e,req,res,next); }\n`;
+    output += `  });\n`;
   }
 
-  output += `  return pods;\n`;
+  for(let j = 0;j < controllers.length;j++) {
+    let path = controllers[j].path;
+
+    if(path.charAt(0) == '/') path = path.substring(1);
+    if(path.charAt(path.length - 1) == '.') path = path.substring(0,path.length - 1);
+
+    output += `  apex.app.use(apex.prefix + '/${path}',apex.getRouter('${controllers[j].className}'));\n`;
+  }
+  output += `  apex.app.use(apex.prefix + '/docs',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
   output += `}\n`;
 
   routesFile.write(output);
