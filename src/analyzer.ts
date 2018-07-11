@@ -501,7 +501,7 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     output += `\n`;
     output += `  apex.getRouter('${endpoints[j].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
     output += `    try {\n`;
-    output += `      const controller = new ${endpoints[j].className}Module.default(app,binding,req,res,next);\n`;
+    output += `      const controller = new ${endpoints[j].className}Module.default(apex.app,binding,req,res,next);\n`;
     if(rfunc == 'get') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
     else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
     output += `      success_response(x,req,res,next);\n`;
