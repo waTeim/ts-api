@@ -1,6 +1,6 @@
 const express = require("express");
 
-export default class RouterPod {
+export default class RouterBase {
   routers:any;
   public prefix: string;
   public app: any;

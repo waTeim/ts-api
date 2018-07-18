@@ -424,7 +424,7 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
       if(methodComment != null && methodComment != "") path.description = methodComment;
       if(returnTypedef != null) responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
       else responses["204"] = { description:"Successful response" };
-      if(methodType == "post") inputForm = "body";
+      if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
       for(let k = 0;k < methods[j].methodParameters.length;k++) {
         let parameter = methods[j].methodParameters[k];
         let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
@@ -502,7 +502,7 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     output += `  apex.getRouter('${endpoints[j].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
     output += `    try {\n`;
     output += `      const controller = new ${endpoints[j].className}Module.default(apex.app,binding,req,res,next);\n`;
-    if(rfunc == 'get') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
+    if(rfunc == 'get' || rfunc == 'put') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
     else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
     output += `      success_response(x,req,res,next);\n`;
     output += `    }\n`;
@@ -641,7 +641,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
         break;
         case ts.SyntaxKind.MethodDeclaration:
         {  
-          if(dname == "get" || dname == "post") {
+          if(dname == "get" || dname == "post" || dname == "put" || dname == "del" || dname == "all") {
             let x = (<ts.FunctionDeclaration>(node.parent)).name;
 
             if(x != null) parentName = x.text;
@@ -682,7 +682,9 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
       if(ts.isCallExpression(expr)) {
         const cexpr = <ts.CallExpression>expr;
         const id = <ts.Identifier>cexpr.expression;
+        let type = id.text;
 
+        if(type == "del") type = "delete";
         if(doRuntimeCheck) {
           let className = (<any>id.parent.parent.parent.parent).name.text;
           let item:DecoratedFunction = { 
@@ -692,7 +694,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
             decoratorArgs:genArgumentList(cexpr),
             methodParameters:methodParameters,
             returnType:returnType,
-            type:id.text
+            type:type
           };
 
           endpoints.push(item);

@@ -1,4 +1,4 @@
-export default class RouterPod {
+export default class RouterBase {
     routers: any;
     prefix: string;
     app: any;

@@ -9,6 +9,7 @@ import EndpointCheckBinding from './EndpointCheckBinding';
  */
 export default class ControllerBase {
     binding: EndpointCheckBinding;
+    path: string;
     app: any;
     req: any;
     res: any;
