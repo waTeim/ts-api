@@ -62,6 +62,7 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     case ts.SyntaxKind.NullKeyword: res = { type:"null" }; break;
     case ts.SyntaxKind.UndefinedKeyword: break;
     case ts.SyntaxKind.SymbolKeyword: break;
+    case ts.SyntaxKind.ObjectKeyword: res = { type:"object" }; break;
     case ts.SyntaxKind.FunctionType: break;
     default: unknown = true; break;
   }
@@ -178,7 +179,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
         }
       }
     }
-    if(symbol) res.description = ts.displayPartsToString(symbol.getDocumentationComment());
+    if(symbol) res.description = ts.displayPartsToString(symbol.getDocumentationComment(checker));
   }
   return res;
 }
@@ -633,7 +634,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
             let symbol = checker.getSymbolAtLocation(name);
 
             parentName = name.text;
-            comment = ts.displayPartsToString(symbol.getDocumentationComment());
+            comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
           }
           returnType = (<ts.FunctionDeclaration>node.parent).type;
           doRuntimeCheck = true;
@@ -650,7 +651,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
             let type = checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration);
             let typeNode = checker.typeToTypeNode(type,node.parent,ts.NodeBuilderFlags.IgnoreErrors|ts.NodeBuilderFlags.WriteTypeParametersInQualifiedName);
           
-            comment = ts.displayPartsToString(symbol.getDocumentationComment());
+            comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
             returnType = (<ts.MethodDeclaration>node.parent).type;
             methodParameters = traverseParameterList((<any>typeNode).parameters);
             doRuntimeCheck = true;
@@ -664,7 +665,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
           let symbol = checker.getSymbolAtLocation(classNameNode);
           let source = <ts.SourceFile>(node.parent.parent);
 
-          comment = ts.displayPartsToString(symbol.getDocumentationComment());
+          comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
           ts.forEachChild(node.parent,visit);
           if(dname == "controller") {
             addController(className,source.fileName,comment);
@@ -729,7 +730,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
            if(propertyName && sig.type) {
              let jsDoc = [];
              let tags = symbol.getJsDocTags();
-             let comment = ts.displayPartsToString(symbol.getDocumentationComment());
+             let comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
              let optional = sig.questionToken;
 
              if(tags.length != 0) {
@@ -774,7 +775,7 @@ function generate(patterns: string[],options: ts.CompilerOptions,packageName: st
       let comment;
  
       if(name != null) symbol = checker.getSymbolAtLocation(name);
-      if(name != null) comment = ts.displayPartsToString(symbol.getDocumentationComment());
+      if(name != null) comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
       if(node.kind == ts.SyntaxKind.ClassDeclaration) {
         ts.forEachChild(node,visit);
         symtab[name.text] = { type:"type", members:{}, jsDoc:null };
