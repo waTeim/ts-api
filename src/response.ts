@@ -1,3 +1,6 @@
+/**
+ * General REST processing in case of an error 
+ */
 function error(e:any,req:any,res:any,next:any) {
   if(res._header == null) {
     
@@ -12,6 +15,9 @@ function error(e:any,req:any,res:any,next:any) {
   }
 }
 
+/**
+ * REST processing in case of endpoint success
+ */
 function success(obj:any,req:any,res:any,next:any) {
   if(res._header == null) {
     if(obj == null) console.error("API return null result");
