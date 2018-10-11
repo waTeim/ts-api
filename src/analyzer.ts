@@ -91,9 +91,11 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     case ts.SyntaxKind.SymbolKeyword: break;
     case ts.SyntaxKind.ObjectKeyword: res = { type:"object" }; break;
     case ts.SyntaxKind.FunctionType: break;
+    case ts.SyntaxKind.VoidKeyword: res = { type:"null" }; break;
+    break;
     default: unknown = true; break;
   }
-  if(unknown) throw(`unknown type  (${o.kind}) in parameterlist`);
+  if(unknown) throw(`cannot convert unknown token (${o.kind}) to JSON`);
   else return res;
 }
 
@@ -130,6 +132,27 @@ function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
      let unionElement = typeToJSON(unionDesc.types[i],null,options);
 
      if(unionElement != null) res.oneOf.push(unionElement);
+   }
+   return res;
+}
+
+/**
+ * Convert a typescript intersection declaration to JSON schema; this is supported
+ * by use of the keyword allOf.
+ *
+ * @param {any} typeDesc The AST subtree describing the intersection type.
+ * @param {any} jsDoc A reference to the current JSDoc document.
+ * @param {any} options Optional values effecting the output form. Currently
+ * serves as a parameter to the recursive call to typeToJSON.
+ */
+function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+   let intersectionDesc = <ts.IntersectionTypeNode>typeDesc;
+   let res = { allOf:[] };
+
+   for(let i = 0;i < intersectionDesc.types.length;i++) {
+     let intersectionElement = typeToJSON(intersectionDesc.types[i],null,options);
+
+     if(intersectionElement != null) res.allOf.push(intersectionElement);
    }
    return res;
 }
@@ -234,7 +257,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
         else {
           res =  maptypeDescName(docRoot,typeDesc.typeName.text);
           if(res != null && res['$ref'] != null && options && options.expandRefs) {
-            if(symtab[typeDesc.typeName.text] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+            if(symtab[typeDesc.typeName.text] == null) throw(`undefined type reference ${typeDesc.typeName.text}`);
             res = symtab[typeDesc.typeName.text].def;
           }
         }
@@ -245,11 +268,12 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc); break;
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
       case ts.SyntaxKind.ParenthesizedType: break;
+      case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc); break;
       //case ts.SyntaxKind.TypeQuery: res = { type:"type query not implemented" }; break;
       //case ts.SyntaxKind.ParenthesizedType: res = { type:"parenthesized type not implemented" }; break;
       default: unknown = true; break;
     }
-    if(unknown) throw(`unknown type (${typeDesc.kind}) in parameterlist`); 
+    if(unknown) throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
   }
   else if(typeDesc.constructor.name == 'TokenObject') res = tokenObjectToJSON(typeDesc,jsDoc);
   else throw(`unknown type (${typeDesc.constructor.name})`);
@@ -283,6 +307,19 @@ function markUnionAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
 }
 
 /**
+ * This function marks all component types of an intersection type that is relevant as also relevant.
+ *
+ *  @param {any} typeDesc Reference to the AST substree describing the type.
+ *  @param {any} jsDoc The associated JSDoc comment.
+ *  @param {any} options Affects the rules governing the recursion.
+ */
+function markIntersectionAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
+  let intersectionDesc = <ts.IntersectionTypeNode>typeDesc;
+
+  for(let i = 0;i < intersectionDesc.types.length;i++) markAsRelevant(intersectionDesc.types[i],null,options);
+}
+
+/**
  * This function marks a type as relevant.  The purpose of marking a type relevant is to 
  * reduce the number of elements that appear in a describing document.  Otherwise not only would
  * al declared types by output, so too would all typescript built-in types which would lead
@@ -305,7 +342,7 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
         let typeName = typeDesc.typeName.text;
         let args = (<any>typeDesc).typeArguments;
 
-        if(symtab[typeName] == null) throw(`undefined type ${typeDesc.typeName.text}`);
+        if(symtab[typeName] == null) throw(`undefined type ${typeDesc.typeName.text} in relevancy tree`);
         symtab[typeName].relevant = true;
         if(args != null) {
           for(let i = 0;i < args.length;i++) markAsRelevant(args[i],jsDoc,options);
@@ -316,6 +353,7 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
       }
       break;
       case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.IntersectionType: markIntersectionAsRelevant(typeDesc,jsDoc); break;
       default: break;
     }
   }
@@ -391,7 +429,10 @@ function connectMethods(endpoints:DecoratedFunction[]): void {
     if(endpoints[i].className != null) {
       let controller = symtab[endpoints[i].className];
             
-      if(controller != null) controller.methods.push(endpoints[i]);
+      if(controller != null) {
+        if(controller.methods != null) controller.methods.push(endpoints[i]);
+        else console.log(`Ignoring endpoint ${endpoints[i].decorates} of ${endpoints[i].className}`);
+      }
     }
   }
 }
@@ -634,6 +675,7 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
         returnTypedef = typeToJSON(methods[j].returnType,null);
         returnTypename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
       }
+      else console.log("void return from a function",p2);
       
       // If the method return type is a promise infer that this is an async function and
       // instead use the subordinate type as the type defined by the swagger doc.
@@ -1100,6 +1142,7 @@ function generate(
   // Recursively analyze an exported member of a source file.  Relevant
   // members include classes and interfaces and other refrenced types.
   function visit(node: ts.Node) {
+
     if(node.decorators != null) {
        try {
          for(const decorator of node.decorators) visitDecorator(decorator);
@@ -1109,18 +1152,19 @@ function generate(
        }
     }
     else if(isNodeExported(node)) {
-      let name = (<ts.ClassDeclaration>node).name;
+      let decl:ts.DeclarationStatement = <ts.DeclarationStatement>node;
+      let name = decl.name;
       let symbol;    
       let comment;
  
       if(name != null) symbol = checker.getSymbolAtLocation(name);
       if(name != null) comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
-      if(node.kind == ts.SyntaxKind.ClassDeclaration) {
-        ts.forEachChild(node,visit);
+      if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
+        ts.forEachChild(decl,visit);
         symtab[name.text] = { type:"type", members:{}, jsDoc:null };
         symtab[name.text].comment = comment;
       }
-      else if(node.kind == ts.SyntaxKind.InterfaceDeclaration) {
+      else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
         if(name != null) {
           let tags = ts.displayPartsToString(symbol.getJsDocTags());
 
@@ -1130,8 +1174,14 @@ function generate(
             symtab[name.text].jsDoc = doctrine.parse(tags);
             //console.log(JSON.stringify(symtab[name.text].jsDoc,null,2));
           }
-          ts.forEachChild(node,visit2);
+          ts.forEachChild(decl,visit2);
         }
+      }
+      else if(decl.kind == ts.SyntaxKind.TypeAliasDeclaration) {
+        let alias = <ts.TypeAliasDeclaration>decl;
+
+        symtab[name.text] = { type:"type", members:{}, jsDoc:null };
+        symtab[name.text].comment = comment;
       }
     }
   }
