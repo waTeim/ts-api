@@ -167,11 +167,11 @@ function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 function literalToJSON(typeDesc:any,jsDoc:any):Object {
   let type = checker.getTypeFromTypeNode(typeDesc);
 
-  if(type.value != null) {
-    return { type:(typeof type.value), oneOf:[{ format:type.value }] };
-  }
+  if(type.value != null) return { type:(typeof type.value), oneOf:[{ format:type.value }] };
   
   let literal = checker.typeToString(type);
+
+  if(literal == "false" || literal == "true") return { type:"boolean" };
 
   throw("unknown literal type (" + literal + ")");
 }
@@ -760,6 +760,9 @@ function genSwaggerRoutes(def: any,routers:Router[],controllers:Controller[]): v
  */
 function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
   let output = `"use strict";\n\n`;
+  let resolvedRoot;
+
+  if(srcRoot != null) resolvedRoot = path.resolve(srcRoot);
 
   output += `const express = require('express');\n`;
   output += `const api = require('ts-api');\n`;
@@ -773,7 +776,7 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     let fileName = path.resolve(controllers[i].fileName);
 
     if(srcRoot != null) {
-      fileName = fileName.replace(srcRoot + '/','');
+      fileName = fileName.replace(resolvedRoot + '/','');
       fileName = fileName.replace(path.extname(fileName),"");
       output += `const ${controllers[i].className}Module = require('./${fileName}');\n`;
     }
