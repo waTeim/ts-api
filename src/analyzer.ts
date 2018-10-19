@@ -11,7 +11,8 @@ const tsany = ts as any;
  */
 interface TypedId {
   id: string,
-  type: Object
+  type: Object,
+  decorators: any[]
 };
 
 /**
@@ -407,11 +408,11 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
  *
  * @param {any} parms The AST subtree describing the parameter list.
  */
-function traverseParameterList(parms: any): TypedId[] {
+function traverseParameterList(parms: any,decoratorMeta:any): TypedId[] {
   let parameterList:TypedId[] = [];
 
   for(let i = 0;i < parms.length;i++) {
-    parameterList.push(<TypedId>{ id:parms[i].name.text, type:parms[i].type });
+    parameterList.push(<TypedId>{ id:parms[i].name.text, type:parms[i].type, decorators:decoratorMeta[parms[i].name.text]});
   }
   return parameterList;
 }
@@ -793,39 +794,54 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
 
 
   output += `\nmodule.exports = function(apex) {\n`;
-  for(let j = 0;j < controllers.length;j++)
-    output += `  apex.addRouter('${controllers[j].className}');\n`;
+  for(let i = 0;i < controllers.length;i++)
+    output += `  apex.addRouter('${controllers[i].className}');\n`;
 
-  for(let j = 0;j < endpoints.length;j++) {
-    let rfunc = endpoints[j].type;
-    let endpointName = endpoints[j].decorates;
+  for(let i = 0;i < endpoints.length;i++) {
+    let rfunc = endpoints[i].type;
+    let endpointName = endpoints[i].decorates;
     let path = endpointName;
   
-    if(endpoints[j].decoratorArgs.length != 0) path = endpoints[j].decoratorArgs[0];
+    if(endpoints[i].decoratorArgs.length != 0) path = endpoints[i].decoratorArgs[0];
 
     // For each method, tie everything together by creating the right controller instance,
     // collecting the express REST parameters, converting it to the method parameters, and then
     // invoking the method with those parameters.  Assume coordiation with the 
     // express verb decorator defined in this package.
     output += `\n`;
-    output += `  apex.getRouter('${endpoints[j].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
+    output += `  apex.getRouter('${endpoints[i].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
     output += `    try {\n`;
-    output += `      const controller = new ${endpoints[j].className}Module.default(apex.app,binding,req,res,next);\n`;
-    if(rfunc == 'get' || rfunc == 'put') output += `      const x = await controller.${endpointName}(req.query);\n\n`;
-    else output += `      const x = await controller.${endpointName}(req.body);\n\n`;
+    output += `      const controller = new ${endpoints[i].className}Module.default(apex.app,binding,req,res,next);\n`
+    output += `      const x = await controller.${endpointName}(`;
+    for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
+      let parm = endpoints[i].methodParameters[j];
+
+      if(parm.decorators != null) {
+        for(let decoratorName in parm.decorators) {
+          if(decoratorName == 'urlParam') {
+            let decoratorArgs = parm.decorators[decoratorName];
+
+            if(decoratorArgs.length) output += `req.params.${decoratorArgs[0]},`;
+            else output += `req.params.${parm.id},`;
+          }
+        }
+      }
+    }
+    if(rfunc == 'get' || rfunc == 'put') output += `req.query);\n\n`;
+    else output += `req.body);\n\n`;
     output += `      success_response(x,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
     output += `  });\n`;
   }
 
-  for(let j = 0;j < controllers.length;j++) {
-    let path = controllers[j].path;
+  for(let i = 0;i < controllers.length;i++) {
+    let path = controllers[i].path;
 
     if(path.charAt(0) == '/') path = path.substring(1);
     if(path.charAt(path.length - 1) == '.') path = path.substring(0,path.length - 1);
 
-    output += `  apex.app.use(apex.prefix + '/${path}',apex.getRouter('${controllers[j].className}'));\n`;
+    output += `  apex.app.use(apex.prefix + '/${path}',apex.getRouter('${controllers[i].className}'));\n`;
   }
   output += `  apex.app.use(apex.prefix + '/docs',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
   output += `}\n`;
@@ -911,7 +927,7 @@ function getFilenames(patterns: string[]) {
  * Extract arguments of relevant decorators for static analysis.  Some arguments
  * to decorators are needed at compile time for file generation (e.g. @controller 
  * path).  This function finds these values for use later on in the 2nd pass.
- * Literal valuse can be used, but arguements only usable at runtime are ignored.
+ * Literal values can be used, but arguements only usable at runtime are ignored.
  *
  * @param {ts.CallExpression} cexpr AST subtree rooted with decorator type node.
  */
@@ -1028,10 +1044,37 @@ function generate(
             let symbol = checker.getSymbolAtLocation(x);
             let type = checker.getTypeOfSymbolAtLocation(symbol,symbol.valueDeclaration);
             let typeNode = checker.typeToTypeNode(type,node.parent,ts.NodeBuilderFlags.IgnoreErrors|ts.NodeBuilderFlags.WriteTypeParametersInQualifiedName);
+            let parameterContext = (<ts.MethodDeclaration>node.parent).parameters;
           
             comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
             returnType = (<ts.MethodDeclaration>node.parent).type;
-            methodParameters = traverseParameterList((<any>typeNode).parameters);
+
+            let parms = (<any>typeNode).parameters;
+            let parmContext = (<ts.MethodDeclaration>node.parent).parameters;
+            let decoratorMeta = {};
+
+            for(let i = 0;i < parmContext.length;i++) {
+              if(parmContext[i].decorators != null) {
+                for(let j = 0;j < parmContext[i].decorators.length;j++) {
+                  const dec = (<ts.Decorator>parmContext[i].decorators[j]).expression;
+                  let dsym = checker.getSymbolAtLocation(dec.getFirstToken());
+                  let dname = dsym.getName();
+                  let parmDecl:ts.ParameterDeclaration = <ts.ParameterDeclaration>dec.parent;
+                  let psym = checker.getSymbolAtLocation(parmDecl.parent.name);
+                  let pname = psym.getName();
+                  let decArgList;
+                  
+                  if(ts.isCallExpression(dec)) {
+                    decArgList = genArgumentList(<ts.CallExpression>dec);
+                  }
+                  if(decArgList == null) decArgList = [];
+                  if(decoratorMeta[pname] == null) decoratorMeta[pname] = {};
+                  decoratorMeta[pname][dname] = decArgList;
+                }
+              }
+            }
+
+            methodParameters = traverseParameterList((<any>typeNode).parameters,decoratorMeta);
             doRuntimeCheck = true;
           }
         }

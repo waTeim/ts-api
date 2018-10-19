@@ -5,6 +5,7 @@ import get from "./get";
 import post from "./post";
 import put from "./put";
 import router from "./router";
+import urlParam from "./urlParam";
 
 export default { 
   all,
@@ -13,5 +14,6 @@ export default {
   get,
   post,
   put,
-  router
+  router,
+  urlParam
 };
