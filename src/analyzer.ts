@@ -16,6 +16,15 @@ interface TypedId {
 };
 
 /**
+ * Simple object for holding the processing of a path; principally for
+ * the result of url param detection and component assignement.
+ */
+interface PathDecomposition {
+  pathComponents:string[],
+  urlParams:Object
+}
+
+/**
  * Interface for collection of relevant information about class methods
  * annotated with REST verb decorators (e.g. @get, @post, etc).
  *
@@ -41,7 +50,7 @@ interface Controller {
   fileName: string,
   comment: string,
   methods: DecoratedFunction[],
-  path: string
+  decomposition: PathDecomposition
 }
 
 /**
@@ -54,8 +63,7 @@ interface Router {
   className: string,
   fileName: string,
   comment: string,
-  methods: DecoratedFunction[],
-  path: string
+  decomposition: PathDecomposition
 }
 
 let symtab: any = {};
@@ -465,6 +473,30 @@ function symtabToSchemaDefinitions(): Object {
 }
 
 /**
+ * Detects a url param variable in a path, returns metadata of the path.
+ * 
+ * @param path {string} the path of a URL associated decorator (router,controller,method).
+ */
+function decomposePath(path:string): PathDecomposition {
+  let delimited = path.split('/');
+  let urlParams = {}
+  let pathComponents = [];
+
+  for(let i = 0;i < delimited.length;i++) {
+    if(delimited[i] != '') {
+      if(delimited[i].match(/:.*/)) {
+        let base = delimited[i].replace(/:/g,"")
+
+        pathComponents.push(base);
+        urlParams[base] = true;
+      }
+      else pathComponents.push(delimited[i]);
+    }
+  }
+  return { pathComponents:pathComponents, urlParams:urlParams };
+}
+
+/**
  * Compiles the list of controller definitions by iterating over
  * the global pass 1 typescript source symbol table and creating a record
  * for each entry marked with type "controller".
@@ -480,13 +512,14 @@ function symtabToControllerDefinitions(): Controller[] {
       let fileName = symtab[className].fileName;
 
       if(symtab[ikey].args != null && symtab[ikey].args[0] != null) path = symtab[ikey].args[0];
+
       res.push({ 
-        path:path,
+        args: symtab[ikey].args,
         className:className,
-        fileName:fileName,
         comment:comment,
-        methods: symtab[ikey].methods,
-        args: symtab[ikey].args
+        fileName:fileName,
+        methods:symtab[ikey].methods,
+        decomposition:decomposePath(path)
       });
     }
   }
@@ -509,13 +542,20 @@ function symtabToRouterDefinitions(): Router[] {
       let fileName = symtab[className].fileName;
 
       if(symtab[ikey].args != null && symtab[ikey].args[0] != null) path = symtab[ikey].args[0];
+     
+      let pathComponents = path.split('/');
+      let urlParams:string[] = [];
+
+      for(let i = 0;i < pathComponents.length;i++) {
+        if(pathComponents[i].match(/:.*/)) urlParams.push(pathComponents[i].replace(/:/g,""));
+      }
+
       res.push({
-        path:path,
+        args: symtab[ikey].args,
         className:className,
-        fileName:fileName,
         comment:comment,
-        methods: symtab[ikey].methods,
-        args: symtab[ikey].args
+        fileName:fileName,
+        decomposition:decomposePath(path)
       });
     }
   }
@@ -591,7 +631,30 @@ function addController(className:string,fileName: string,comment: string): void 
  * @param {string} comment a JSDoc type comment of the router.
  */
 function addRouter(className:string,fileName: string,comment: string): void {
-  symtab[className] = { type:"router", name:className, fileName:fileName, comment:comment, methods:[], args:[] };
+  symtab[className] = { type:"router", name:className, fileName:fileName, comment:comment, args:[] };
+}
+
+/**
+ * Output a path of appropriate type-style by concetenating the components some of which
+ * might also be urlParam type components.
+ *
+ * @param decomposition {PathDecomposition} The decomposed form of a path -- broken down into components.
+ & @param pathType: Either swagger or express
+ */
+function decompositionToPath(decomposition:PathDecomposition,pathType:"swagger"|"express"):string {
+  let path = "";
+
+  for(let i = 0;i < decomposition.pathComponents.length;i++) {
+    let component = decomposition.pathComponents[i];
+    
+    if(path != "") path = path + '/';
+    if(decomposition.urlParams[component]) {
+      if(pathType == "swagger") path = path + '{' + component + '}';
+      else path = path + ':' + component;
+    }
+    else path = path + component;
+  }
+  return path;
 }
 
 /**
@@ -600,20 +663,18 @@ function addRouter(className:string,fileName: string,comment: string): void {
  *
  * @param {any} def reference to the swagger doc.
  * @param {string} projectName the name of the project (is derived from package.json packageName).
- * @param {Router[]} array of router definitions (expected to be of length 1).
+ * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerPreamble(def: any,projectName:string,routers:Router[],controllers:Controller[]): void {
+function genSwaggerPreamble(def: any,projectName:string,router:Router,controllers:Controller[]): void {
   let comments = "";
 
-  for(let i = 0;i < routers.length;i++) {
-    if(routers[i].comment != null && routers[i].comment != '') comments += routers[i].comment + "\n\n";
-    for(let j = 0;j < controllers.length;j++) {
-      if(controllers[j].comment != null && controllers[j].comment != '') {
-        if(comments.length != 0) comments += "\n\n";
-        comments += controllers[j].path + "\n\n";
-        comments += controllers[j].comment;
-      }
+  if(router.comment != null && router.comment != '') comments += router.comment + "\n\n";
+  for(let i = 0;i < controllers.length;i++) {
+    if(controllers[i].comment != null && controllers[i].comment != '') {
+      if(comments.length != 0) comments += "\n\n";
+      comments += decompositionToPath(controllers[i].decomposition,"swagger") + "\n\n";
+      comments += controllers[i].comment;
     }
   }
   def.openapi = "3.0.0";
@@ -626,14 +687,14 @@ function genSwaggerPreamble(def: any,projectName:string,routers:Router[],control
  * Generate swagger tags based on controller paths 
  *
  * @param {any} def reference to the swagger doc.
- * @param {Router[]} array of router definitions (expected to be of length 1).
+ * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerTags(def: any,routers:Router[],controllers:Controller[]): void {
+function genSwaggerTags(def: any,router:Router,controllers:Controller[]): void {
   let tags:any[] = [];
 
   for(let i = 0;i < controllers.length;i++) {
-    tags.push({ path:controllers[i].path });
+    tags.push({ path:decompositionToPath(controllers[i].decomposition,"swagger") });
   }
   //def.tags = tags;
 }
@@ -646,28 +707,30 @@ function genSwaggerTags(def: any,routers:Router[],controllers:Controller[]): voi
  * @param {string} prefix top level path to pre-pend to all paths.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void {
+function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void {
   let paths:Object = {};
+  let p1 = decompositionToPath(router.decomposition,"swagger");
 
   for(let i = 0;i < controllers.length;i++) {
     let methods: DecoratedFunction[] = controllers[i].methods;
-    let p1 = controllers[i].path;
+    let p2 = decompositionToPath(controllers[i].decomposition,"swagger");
     let comment = controllers[i].comment;
     
-    // strip any unnecessary '/' characters from the controller path
-    if(p1.charAt(0) == '/') p1 = p1.substring(1);
-    if(p1.charAt(p1.length - 1) == '.') p1 = p1.substring(0,p1.length - 1);
-
     // For each controller, iterate over every method and create a path
     // for it.  If the method verb decorator contains a path use it, otherwise
     // use the name of the method itself.
     for(let j = 0;j < methods.length;j++) {
-      let p2 = methods[j].decorates;
+      let methodPath = methods[j].decorates;
+
+      if(methods[j].decoratorArgs.length != 0) methodPath = methods[j].decoratorArgs[0];
+
+      let methodPathDecomposition = decomposePath(methodPath);
+      let p3 = decompositionToPath(methodPathDecomposition,"swagger");
+
       let parameters = [];
       let methodType = methods[j].type;
-      let inputForm = "query";
       let responses = {};
-      let path:any = { tags:[p1], operationId:p2, parameters:parameters, responses:responses  };
+      let path:any = { tags:[p2], operationId:p3, parameters:parameters, responses:responses  };
       let methodComment = methods[j].comment;
       let returnTypedef;
       let returnTypename;
@@ -676,7 +739,7 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
         returnTypedef = typeToJSON(methods[j].returnType,null);
         returnTypename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
       }
-      else console.log("void return from a function",p2);
+      else console.log("void return from a function",p3);
       
       // If the method return type is a promise infer that this is an async function and
       // instead use the subordinate type as the type defined by the swagger doc.
@@ -689,7 +752,6 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
       if(methodComment != null && methodComment != "") path.description = methodComment;
       if(returnTypedef != null) responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
       else responses["204"] = { description:"Successful response" };
-      if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
 
       // Create the input doc swagger definition given the method parameters.  Recursively expand
       // objects rather that using JSON schema $ref, and if a method parameter is of type object, then
@@ -702,7 +764,11 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
         if(parameterTypedef != null && parameterTypedef.type == "object") { 
           for(let pname in parameterTypedef.properties) {
             let isRequired = false;
+            let inputForm = "query";
       
+            if(router.decomposition.urlParams[pname] || controllers[i].decomposition.urlParams[pname] || methodPathDecomposition.urlParams[pname])
+              inputForm = "path";
+            else if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
             if(parameterTypedef.required != null) {
               for(let l = 0;l < parameterTypedef.required.length;l++) {
                 if(parameterTypedef.required[l] == pname) isRequired = true;
@@ -711,12 +777,20 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
             parameters.push({ name:pname, in:inputForm, schema:parameterTypedef.properties[pname], required:isRequired });
           }
         }
-        else parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypedef });
+        else {
+          let inputForm = "query";
+
+          if(router.decomposition.urlParams[parameter.id] || controllers[i].decomposition.urlParams[parameter.id] || methodPathDecomposition.urlParams[parameter.id])
+            inputForm = "path";
+          else if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
+          parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypedef });
+        }
       }
 
-      let pathId = '/' + prefix + '/' + p1 + '/' + p2;
-    
-      paths[pathId] = {};
+      let pathId = '/' + p2 + '/' + p3;
+
+      if(p1 != "") pathId = '/' + p1 + pathId;
+      if(paths[pathId] == null) paths[pathId] = {};
       paths[pathId][methodType] = path;
     }
   }
@@ -728,18 +802,13 @@ function genSwaggerPaths(def: any,prefix:string,controllers:Controller[]): void 
  * only be a singleton router.
  *
  * @param {any} def reference to the swagger doc.
- * @param {Router[]} array of router definitions (expected to be of length 1).
+ * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerRoutes(def: any,routers:Router[],controllers:Controller[]): void {
-  if(routers.length == 0) throw("No Router Definitions Found");
-  for(let i = 0;i < routers.length;i++) {
-    let prefix = routers[i].path;
+function genSwaggerRoutes(def: any,router:Router,controllers:Controller[]): void {
+  let prefix = decompositionToPath(router.decomposition,"swagger");
    
-    if(prefix.charAt(0) == '/') prefix = prefix.substring(1);
-    if(prefix.charAt(prefix.length - 1) == '.') prefix = prefix.substring(0,prefix.length - 1);
-    genSwaggerPaths(def,prefix,controllers);
-  }
+  genSwaggerPaths(def,router,controllers);
 }
 
 /**
@@ -755,13 +824,14 @@ function genSwaggerRoutes(def: any,routers:Router[],controllers:Controller[]): v
  * a app.{get,post,put,...} for each method of a controller an analogous annotation.
  *
  * @param {DecoratedFunction[]} endpoints A array of all of the methods decorated with REST verbs.
- * @param {Router[]} routers array of router. It is assumed to be of length 1.
+ * @param {Router} top level router class.
  * @param {Controller[]} controllers array of method controllers
  * @param {NodeJS.ReadWriteStream} routesFile reference to the routes output file.
  */
-function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
+function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
   let output = `"use strict";\n\n`;
   let resolvedRoot;
+  let controllerIndex = {};
 
   if(srcRoot != null) resolvedRoot = path.resolve(srcRoot);
 
@@ -782,6 +852,7 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
       output += `const ${controllers[i].className}Module = require('./${fileName}');\n`;
     }
     else output += `const ${controllers[i].className}Module = require('./${path.basename(fileName)}');\n`;
+    controllerIndex[controllers[i].className] = controllers[i];
   }
 
   // include support for automatic swagger document display endpoint.  Avoid
@@ -804,12 +875,15 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
   
     if(endpoints[i].decoratorArgs.length != 0) path = endpoints[i].decoratorArgs[0];
 
+    let endpointPathDecomposition = decomposePath(path);
+    let endpointPath = decompositionToPath(endpointPathDecomposition,"express");
+
     // For each method, tie everything together by creating the right controller instance,
     // collecting the express REST parameters, converting it to the method parameters, and then
     // invoking the method with those parameters.  Assume coordiation with the 
     // express verb decorator defined in this package.
     output += `\n`;
-    output += `  apex.getRouter('${endpoints[i].className}').${rfunc}('/${path}', async(req,res,next) => {\n`;
+    output += `  apex.getRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
     output += `    try {\n`;
     output += `      const controller = new ${endpoints[i].className}Module.default(apex.app,binding,req,res,next);\n`
     output += `      const x = await controller.${endpointName}(`;
@@ -826,6 +900,9 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
           }
         }
       }
+      else if(router.decomposition.urlParams[parm.id] || controllerIndex[endpoints[i].className].decomposition.urlParams[parm.id] || endpointPathDecomposition.urlParams[parm.id]) {
+        output += `req.params.${parm.id},`;
+      }
     }
     if(rfunc == 'get' || rfunc == 'put') output += `req.query);\n\n`;
     else output += `req.body);\n\n`;
@@ -835,15 +912,19 @@ function genRoutes(endpoints:DecoratedFunction[],routers:Router[],controllers:Co
     output += `  });\n`;
   }
 
+  let routerPath = decompositionToPath(router.decomposition,"express");
+
   for(let i = 0;i < controllers.length;i++) {
-    let path = controllers[i].path;
+    let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
 
-    if(path.charAt(0) == '/') path = path.substring(1);
-    if(path.charAt(path.length - 1) == '.') path = path.substring(0,path.length - 1);
-
-    output += `  apex.app.use(apex.prefix + '/${path}',apex.getRouter('${controllers[i].className}'));\n`;
+    if(routerPath != "") path = '/${routerPath}' + path; 
+    output += `  apex.app.use('${path}',apex.getRouter('${controllers[i].className}'));\n`;
   }
-  output += `  apex.app.use(apex.prefix + '/docs',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+
+  let docPath = '/docs';
+
+  if(routerPath != "") docPath = '/${routerPath}' + docPath;
+  output += `  apex.app.use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
   output += `}\n`;
 
   routesFile.write(output);
@@ -878,6 +959,9 @@ function genSources(
   let contents_part2 = '';
   let contents_part3 = '';
 
+  if(routers.length == 0) throw("No Router Definitions Found");
+  if(routers.length > 1) throw("Multiple Router Definitions Found");
+
   contents_part1 += `\n\nconst Ajv = require('ajv');\n`;
   contents_part1 += `\nlet ajv = new Ajv({ coerceTypes: true });\n`;
 
@@ -898,12 +982,12 @@ function genSources(
   checkFile.write(contents_part2);
   checkFile.write(contents_part3);
 
-  genSwaggerPreamble(swaggerDefinitions,packageName,routers,controllers);
-  genSwaggerTags(swaggerDefinitions,routers,controllers);
-  genSwaggerRoutes(swaggerDefinitions,routers,controllers);
+  genSwaggerPreamble(swaggerDefinitions,packageName,routers[0],controllers);
+  genSwaggerTags(swaggerDefinitions,routers[0],controllers);
+  genSwaggerRoutes(swaggerDefinitions,routers[0],controllers);
   swaggerDefinitions.components = { schemas:definitions };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
-  genRoutes(items,routers,controllers,srcRoot,routesFile);
+  genExpressRoutes(items,routers[0],controllers,srcRoot,routesFile);
 }
 
 /**
@@ -1109,11 +1193,13 @@ function generate(
         if(type == "del") type = "delete";
         if(doRuntimeCheck) {
           let className = (<any>id.parent.parent.parent.parent).name.text;
+          let decoratorArgs = genArgumentList(cexpr);
+
           let item:DecoratedFunction = { 
             className:className,
             comment:comment,
             decorates:parentName,
-            decoratorArgs:genArgumentList(cexpr),
+            decoratorArgs:decoratorArgs,
             methodParameters:methodParameters,
             returnType:returnType,
             type:type
