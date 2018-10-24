@@ -606,7 +606,7 @@ function genMethodEntry(className,methodName,parameterNames,schema): string {
   schemaFormatted = schemaFormatted.replace(/\n/g,"\n  ");
   s += `  schema:compositeWithDefinitions(${schemaFormatted}),\n`;
   s += `  argsToSchema:${genArgsToSchema(parameterNames)},\n`;
-  s += `  validate:ajv.compile(compositeWithDefinitions(${schemaFormatted}))\n`;
+  s += `  validate:validate(${schemaFormatted})\n`;
   s += `};\n`;
   return s;
 }
@@ -699,6 +699,82 @@ function genSwaggerTags(def: any,router:Router,controllers:Controller[]): void {
   //def.tags = tags;
 }
 
+function isURLParam(id:string,router:Router,controller:Controller,methodPathDecomposition:PathDecomposition):boolean {
+  return router.decomposition.urlParams[id] || controller.decomposition.urlParams[id] || methodPathDecomposition.urlParams[id];
+}
+
+function genSwaggerPathParameters(router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
+  let parameters = [];
+
+  for(let i = 0;i < method.methodParameters.length;i++) {
+    let parameter = method.methodParameters[i];
+    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+
+    if(parameterTypedef != null && parameterTypedef.type == "object") {
+      for(let pname in parameterTypedef.properties) {
+        if(isURLParam(pname,router,controller,methodPathDecomposition))
+          parameters.push({ name:pname, in:"path", schema:parameterTypedef.properties[pname], required:true });
+      }
+    }
+    else {
+      if(isURLParam(parameter.id,router,controller,methodPathDecomposition))
+        parameters.push({ name:parameter.id, in:"path", schema:parameterTypedef, required:true  });
+    }
+  }
+  return parameters;
+}
+
+function genSwaggerRequestParameters(router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
+  let parameters = [];
+
+  // Create the input doc swagger definition given the method parameters.  Recursively expand
+  // objects rather that using JSON schema $ref, and if a method parameter is of type object, then
+  // assume it's a class or interance and instead generate a swagger doc that is the members of
+  // that aggregate.
+  for(let i = 0;i < method.methodParameters.length;i++) {
+    let parameter = method.methodParameters[i];
+    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+
+    if(parameterTypedef != null && parameterTypedef.type == "object") {
+      for(let pname in parameterTypedef.properties) {
+        let isRequired = false;
+
+        if(!isURLParam(pname,router,controller,methodPathDecomposition)) {
+          if(parameterTypedef.required != null) {
+            for(let l = 0;l < parameterTypedef.required.length;l++) {
+              if(parameterTypedef.required[l] == pname) isRequired = true;
+            }
+          }
+          parameters.push({ name:pname, in:"query", schema:parameterTypedef.properties[pname], required:isRequired });
+        }
+      }
+    }
+    else if(!isURLParam(parameter.id,router,controller,methodPathDecomposition))
+      parameters.push({ name:parameter.id, in:"query", schema:parameterTypedef, required:parameterTypedef.required });
+  }
+  return parameters;
+}
+
+function genSwaggerRequestBody(router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
+  let parameters = [];
+
+  for(let i = 0;i < method.methodParameters.length;i++) {
+    let parameter = method.methodParameters[i];
+    let parameterTypedef:any = typeToJSON(parameter.type,null,{ docRoot:"#/components/schemas" });
+
+    if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
+      parameters.push({ name:parameter.id, required:parameterTypedef.required, schema:parameterTypedef });
+    }
+  }
+  if(parameters.length == 1) {
+    return { required:parameters[0].required, content:{ "application/json":{ schema:parameters[0].schema }}};
+  }
+  else if(parameters.length > 1) {
+    return { content:{}};
+  }
+  else return { content:{}};
+}
+
 /**
  * Generate swagger paths (REST endpoints) given the combination of prefix, controller
  * paths and methods of those controllers.
@@ -722,18 +798,17 @@ function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void 
     for(let j = 0;j < methods.length;j++) {
       let methodPath = methods[j].decorates;
 
+      let parameters = [];
+      let methodType = methods[j].type;
+      let responses = {};
+      let methodComment = methods[j].comment;
+      let returnTypedef;
+      let returnTypename;
+
       if(methods[j].decoratorArgs.length != 0) methodPath = methods[j].decoratorArgs[0];
 
       let methodPathDecomposition = decomposePath(methodPath);
       let p3 = decompositionToPath(methodPathDecomposition,"swagger");
-
-      let parameters = [];
-      let methodType = methods[j].type;
-      let responses = {};
-      let path:any = { tags:[p2], operationId:p3, parameters:parameters, responses:responses  };
-      let methodComment = methods[j].comment;
-      let returnTypedef;
-      let returnTypename;
 
       if(methods[j].returnType != null) {
         returnTypedef = typeToJSON(methods[j].returnType,null);
@@ -749,46 +824,18 @@ function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void 
         returnTypedef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
       
+      let path:any = { tags:[p2], operationId:p3, responses:responses };
+      let pathId = '/' + p2 + '/' + p3;
+      let pathParameters = genSwaggerPathParameters(router,controllers[i],methods[j],methodPathDecomposition);
+
       if(methodComment != null && methodComment != "") path.description = methodComment;
       if(returnTypedef != null) responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
       else responses["204"] = { description:"Successful response" };
-
-      // Create the input doc swagger definition given the method parameters.  Recursively expand
-      // objects rather that using JSON schema $ref, and if a method parameter is of type object, then
-      // assume it's a class or interance and instead generate a swagger doc that is the members of
-      // that aggregate.
-      for(let k = 0;k < methods[j].methodParameters.length;k++) {
-        let parameter = methods[j].methodParameters[k];
-        let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
-
-        if(parameterTypedef != null && parameterTypedef.type == "object") { 
-          for(let pname in parameterTypedef.properties) {
-            let isRequired = false;
-            let inputForm = "query";
-      
-            if(router.decomposition.urlParams[pname] || controllers[i].decomposition.urlParams[pname] || methodPathDecomposition.urlParams[pname])
-              inputForm = "path";
-            else if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
-            if(parameterTypedef.required != null) {
-              for(let l = 0;l < parameterTypedef.required.length;l++) {
-                if(parameterTypedef.required[l] == pname) isRequired = true;
-              }
-            }
-            parameters.push({ name:pname, in:inputForm, schema:parameterTypedef.properties[pname], required:isRequired });
-          }
-        }
-        else {
-          let inputForm = "query";
-
-          if(router.decomposition.urlParams[parameter.id] || controllers[i].decomposition.urlParams[parameter.id] || methodPathDecomposition.urlParams[parameter.id])
-            inputForm = "path";
-          else if(methodType == "post" || methodType == "all" || methodType == "delete") inputForm = "body";
-          parameters.push({ in:inputForm, name:parameter.id, required:true, schema:parameterTypedef });
-        }
+      if(methodType == "post" || methodType == "all" || methodType == "put" || methodType == "patch") {
+        if(pathParameters.length != 0) path.parameters = pathParameters;
+        path.requestBody = genSwaggerRequestBody(router,controllers[i],methods[j],methodPathDecomposition);
       }
-
-      let pathId = '/' + p2 + '/' + p3;
-
+      else path.parameters = pathParameters.concat(genSwaggerRequestParameters(router,controllers[i],methods[j],methodPathDecomposition));
       if(p1 != "") pathId = '/' + p1 + pathId;
       if(paths[pathId] == null) paths[pathId] = {};
       paths[pathId][methodType] = path;
@@ -885,6 +932,9 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     output += `\n`;
     output += `  apex.getRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
     output += `    try {\n`;
+    if(rfunc != 'get' && rfunc != 'put') {
+      output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
+    }
     output += `      const controller = new ${endpoints[i].className}Module.default(apex.app,binding,req,res,next);\n`
     output += `      const x = await controller.${endpointName}(`;
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
@@ -900,7 +950,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
           }
         }
       }
-      else if(router.decomposition.urlParams[parm.id] || controllerIndex[endpoints[i].className].decomposition.urlParams[parm.id] || endpointPathDecomposition.urlParams[parm.id]) {
+      else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition)) {
         output += `req.params.${parm.id},`;
       }
     }
@@ -917,7 +967,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   for(let i = 0;i < controllers.length;i++) {
     let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
 
-    if(routerPath != "") path = '/${routerPath}' + path; 
+    if(routerPath != "") path = `/${routerPath}${path}`; 
     output += `  apex.app.use('${path}',apex.getRouter('${controllers[i].className}'));\n`;
   }
 
@@ -966,6 +1016,7 @@ function genSources(
   contents_part1 += `\nlet ajv = new Ajv({ coerceTypes: true });\n`;
 
   contents_part3 += `\nfunction compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }\n`;
+  contents_part3 += `function validate(schema) { try { return ajv.compile(compositeWithDefinitions(schema)); } catch(e) { throw new Error(e); } }\n`;
 
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
@@ -1251,7 +1302,7 @@ function generate(
                }
                tagSrc.push(" */");
                try {
-                 checkFile.write(tagSrc.join('\n'));
+                 //checkFile.write(tagSrc.join('\n'));
                  jsDoc.push(doctrine.parse(tagSrc.join('\n'),{ unwrap:true }));
                } 
                catch(e) { throw("invalid JSDoc: " + e); }
