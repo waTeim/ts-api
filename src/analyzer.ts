@@ -954,7 +954,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
         output += `req.params.${parm.id},`;
       }
     }
-    if(rfunc == 'get' || rfunc == 'put') output += `req.query);\n\n`;
+    if(rfunc == 'get') output += `req.query);\n\n`;
     else output += `req.body);\n\n`;
     output += `      success_response(x,req,res,next);\n`;
     output += `    }\n`;
@@ -973,7 +973,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
 
   let docPath = '/docs';
 
-  if(routerPath != "") docPath = '/${routerPath}' + docPath;
+  if(routerPath != "") docPath = `/${routerPath}${docPath}`;
   output += `  apex.app.use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
   output += `}\n`;
 
