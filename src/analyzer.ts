@@ -755,7 +755,7 @@ function genSwaggerRequestParameters(router:Router,controller:Controller,method:
   return parameters;
 }
 
-function genSwaggerRequestBody(router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
+function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
   let parameters = [];
 
   for(let i = 0;i < method.methodParameters.length;i++) {
@@ -770,7 +770,21 @@ function genSwaggerRequestBody(router:Router,controller:Controller,method:Decora
     return { required:parameters[0].required, content:{ "application/json":{ schema:parameters[0].schema }}};
   }
   else if(parameters.length > 1) {
-    return { content:{}};
+    let methodName = method.decorates;
+    let rqbName = `${controller.className}${methodName.substring(0,1).toUpperCase()}${methodName.substring(1)}Body`;
+    let properties = {};
+    let required = [];
+    let notAllOptional = false;
+
+    for(let i = 0;i < parameters.length;i++) {
+      properties[parameters[i].name] = parameters[i].schema;
+      if(parameters[i].required) {
+        required.push(parameters[i].name);
+        notAllOptional = true;
+      }
+    }
+    synthesizedTypes[rqbName] = { type:"object", properties:properties, required:required, description:`synthesized request body type for ${controller.className}.${methodName}` };
+    return { required:notAllOptional, content:{ "application/json":{ schema:{ "$ref":`#/components/requestBodies/${rqbName}` }}}};
   }
   else return { content:{}};
 }
@@ -783,7 +797,7 @@ function genSwaggerRequestBody(router:Router,controller:Controller,method:Decora
  * @param {string} prefix top level path to pre-pend to all paths.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void {
+function genSwaggerPaths(def: any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
   let paths:Object = {};
   let p1 = decompositionToPath(router.decomposition,"swagger");
 
@@ -833,7 +847,7 @@ function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void 
       else responses["204"] = { description:"Successful response" };
       if(methodType == "post" || methodType == "all" || methodType == "put" || methodType == "patch") {
         if(pathParameters.length != 0) path.parameters = pathParameters;
-        path.requestBody = genSwaggerRequestBody(router,controllers[i],methods[j],methodPathDecomposition);
+        path.requestBody = genSwaggerRequestBody(synthesizedTypes,router,controllers[i],methods[j],methodPathDecomposition);
       }
       else path.parameters = pathParameters.concat(genSwaggerRequestParameters(router,controllers[i],methods[j],methodPathDecomposition));
       if(p1 != "") pathId = '/' + p1 + pathId;
@@ -852,10 +866,10 @@ function genSwaggerPaths(def: any,router:Router,controllers:Controller[]): void 
  * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerRoutes(def: any,router:Router,controllers:Controller[]): void {
+function genSwaggerRoutes(def: any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
   let prefix = decompositionToPath(router.decomposition,"swagger");
    
-  genSwaggerPaths(def,router,controllers);
+  genSwaggerPaths(def,synthesizedTypes,router,controllers);
 }
 
 /**
@@ -937,6 +951,10 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     }
     output += `      const controller = new ${endpoints[i].className}Module.default(apex.app,binding,req,res,next);\n`
     output += `      const x = await controller.${endpointName}(`;
+  
+    let params = [];
+    let numURLParam = 0;
+
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
       let parm = endpoints[i].methodParameters[j];
 
@@ -945,17 +963,31 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
           if(decoratorName == 'urlParam') {
             let decoratorArgs = parm.decorators[decoratorName];
 
-            if(decoratorArgs.length) output += `req.params.${decoratorArgs[0]},`;
-            else output += `req.params.${parm.id},`;
+            if(decoratorArgs.length) params.push({ id:decoratorArgs[0], type:"urlParam" });
+            else params.push({ id:parm.id, type: "urlParam" });
           }
         }
       }
-      else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition)) {
-        output += `req.params.${parm.id},`;
+      else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition))
+        params.push({ id:parm.id, type: "urlParam" });
+      else
+        params.push({ id:parm.id, type: "regular" });
+    }
+    for(let j = 0;j < params.length;j++) {
+      if(j != 0) output += ',';
+      if(params[j].type == "urlParam") output += `req.params.${params[j].id}`;
+      else {
+        if(params.length - numURLParam == 1) {
+          if(rfunc == 'get') output += `req.query`;
+          else output += `req.body`;
+        }
+        else {
+          if(rfunc == 'get') output += `req.query.${params[j].id}`;
+          else output += `req.body.${params[j].id}`;
+        }
       }
     }
-    if(rfunc == 'get') output += `req.query);\n\n`;
-    else output += `req.body);\n\n`;
+    output += `);\n\n`;
     output += `      success_response(x,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
@@ -1026,6 +1058,7 @@ function genSources(
   }
 
   let definitions = symtabToSchemaDefinitions();
+  let synthesizedTypes = {};
 
   contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`;
 
@@ -1035,7 +1068,8 @@ function genSources(
 
   genSwaggerPreamble(swaggerDefinitions,packageName,routers[0],controllers);
   genSwaggerTags(swaggerDefinitions,routers[0],controllers);
-  genSwaggerRoutes(swaggerDefinitions,routers[0],controllers);
+  genSwaggerRoutes(swaggerDefinitions,synthesizedTypes,routers[0],controllers);
+  for(let synthesizedTypename in synthesizedTypes) definitions[synthesizedTypename] = synthesizedTypes[synthesizedTypename];
   swaggerDefinitions.components = { schemas:definitions };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
   genExpressRoutes(items,routers[0],controllers,srcRoot,routesFile);
