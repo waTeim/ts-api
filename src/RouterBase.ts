@@ -11,7 +11,7 @@ export default class RouterBase {
     this.routers = {};
     this.root = express.Router();
   }
-  getRouter(name?:string) { 
+  getExpressRouter(name?:string) { 
     if(name == null) return this.root;
     return this.routers[name];
   }

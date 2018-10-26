@@ -949,7 +949,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     // invoking the method with those parameters.  Assume coordiation with the 
     // express verb decorator defined in this package.
     output += `\n`;
-    output += `  apex.getRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
+    output += `  apex.getExpressRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
     output += `    try {\n`;
     if(rfunc != 'get' && rfunc != 'put') {
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
@@ -1002,8 +1002,8 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   let docPath = '/docs';
 
   if(routerPath != "") docPath = `/${routerPath}${docPath}`;
-  output += `  apex.getRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
-  output += `  return apex.getRouter();\n`;
+  output += `  apex.getExpressRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  return apex.getExpressRouter();\n`;
   output += `}\n`;
 
   routesFile.write(output);

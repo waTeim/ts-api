@@ -4,6 +4,6 @@ export default class RouterBase {
     prefix: string;
     context: any;
     constructor(context: any);
-    getRouter(name?: string): any;
+    getExpressRouter(name?: string): any;
     addRouter(path: string, name: string): void;
 }
