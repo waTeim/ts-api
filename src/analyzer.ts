@@ -784,7 +784,7 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
       }
     }
     synthesizedTypes[rqbName] = { type:"object", properties:properties, required:required, description:`synthesized request body type for ${controller.className}.${methodName}` };
-    return { required:notAllOptional, content:{ "application/json":{ schema:{ "$ref":`#/components/requestBodies/${rqbName}` }}}};
+    return { required:notAllOptional, content:{ "application/json":{ schema:{ "$ref":`#/components/schemas/${rqbName}` }}}};
   }
   else return { content:{}};
 }
@@ -923,11 +923,16 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   output += `const swaggerUi = api.swaggerUi;\n`;
   output += `const swaggerDocument = require('./docs/swagger.json');\n`;
   output += `\nlet binding = new EndpointCheckBinding(require('./__check'));\n`;
-
-
   output += `\nmodule.exports = function(apex) {\n`;
-  for(let i = 0;i < controllers.length;i++)
-    output += `  apex.addRouter('${controllers[i].className}');\n`;
+
+  let routerPath = decompositionToPath(router.decomposition,"express");
+
+  for(let i = 0;i < controllers.length;i++) {
+    let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
+
+    if(routerPath != "") path = `/${routerPath}${path}`;
+    output += `  apex.addRouter('${path}','${controllers[i].className}');\n`;
+  }
 
   for(let i = 0;i < endpoints.length;i++) {
     let rfunc = endpoints[i].type;
@@ -949,7 +954,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     if(rfunc != 'get' && rfunc != 'put') {
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
     }
-    output += `      const controller = new ${endpoints[i].className}Module.default(apex.app,binding,req,res,next);\n`
+    output += `      const controller = new ${endpoints[i].className}Module.default(apex.context,binding,req,res,next);\n`
     output += `      const x = await controller.${endpointName}(`;
   
     let params = [];
@@ -994,19 +999,11 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     output += `  });\n`;
   }
 
-  let routerPath = decompositionToPath(router.decomposition,"express");
-
-  for(let i = 0;i < controllers.length;i++) {
-    let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
-
-    if(routerPath != "") path = `/${routerPath}${path}`; 
-    output += `  apex.app.use('${path}',apex.getRouter('${controllers[i].className}'));\n`;
-  }
-
   let docPath = '/docs';
 
   if(routerPath != "") docPath = `/${routerPath}${docPath}`;
-  output += `  apex.app.use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  apex.getRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  return apex.getRouter();\n`;
   output += `}\n`;
 
   routesFile.write(output);

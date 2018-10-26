@@ -1,14 +1,22 @@
 const express = require("express");
 
 export default class RouterBase {
+  root:any;
   routers:any;
   public prefix: string;
-  public app: any;
+  public context: any;
 
-  constructor(app: any) {
-    this.app = app;
+  constructor(context:any) {
+    this.context = context;
     this.routers = {};
+    this.root = express.Router();
   }
-  getRouter(name:string) { return this.routers[name]; }
-  addRouter(name:string):void { this.routers[name] = express.Router(); };
+  getRouter(name?:string) { 
+    if(name == null) return this.root;
+    return this.routers[name];
+  }
+  addRouter(path:string,name:string):void { 
+    this.routers[name] = express.Router();
+    this.root.use(path,this.routers[name]);
+  };
 }
