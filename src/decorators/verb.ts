@@ -25,20 +25,25 @@ export default function verb(target:any,key:string,originalMethod:any,errorHandl
   return function() {
     let binding = this.getEndpointSignatureBinding();
     let controller = this;
+    let args = [];
 
     if(binding != null) {
       let check = binding.check[(<any>target.constructor).name + "." + key];
-      let valid = check.validate(check.argsToSchema(arguments));
-      var args = [];
-
+      let argObject = check.argsToSchema(arguments);
+      let valid = check.validate(argObject);
 
       if(!valid) {
         let err = check.validate.errors[0];
 
         throw({ status:400, message:"parameterList" + err.dataPath + " " + err.message });
        }
+   
+       // generate args from schema because ajv might have transformed the original
+       args = check.schemaToArgs(argObject);
     }
-    for(var _i = 0;_i < arguments.length;_i++) args[_i - 0] = arguments[_i];
+    else {
+      for(var i = 0;i < arguments.length;i++) args[i - 0] = arguments[i];
+    }
     try {
       // note usage of originalMethod here
       let obj = originalMethod.apply(controller,args);

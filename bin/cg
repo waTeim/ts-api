@@ -24,6 +24,7 @@
 
   const path = require('path')
   const fs = require('fs');
+  const mkdirp = require('mkdirp');
   const Promise = require('bluebird');
   const findRoot = require('find-root');
   const analyzer = require('../lib/analyzer.js')
@@ -35,6 +36,8 @@
     .option('-r, --root <rootdir>', 'rootdir []')
     .option('-o, --out <outdir>', 'outdir []')
     .parse(process.argv);
+
+  const mkdirpSync = Promise.promisify(mkdirp);
 
   const main = Promise.coroutine(function*() {
     let outDir = program.out;
@@ -62,31 +65,31 @@
     if(tsconfigPath != null) {
       let data = fs.readFileSync(tsconfigPath);
         
-       try {
-         let meta = JSON.parse(data);
+      try {
+        let meta = JSON.parse(data);
   
-         if(meta != null && meta.compilerOptions != null && meta.compilerOptions.outDir != null) 
-           outDir = path.resolve(rootDir,meta.compilerOptions.outDir);
-         if(meta != null && meta.compilerOptions != null && meta.compilerOptions.rootDir != null) 
-           srcRoot = path.resolve(rootDir,meta.compilerOptions.rootDir);
-         if(meta != null && meta.include != null) tsInclude = meta.include;
-       }
-       catch(e) {
-         console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
-       }
+        if(meta != null && meta.compilerOptions != null && meta.compilerOptions.outDir != null) 
+          outDir = path.resolve(rootDir,meta.compilerOptions.outDir);
+        if(meta != null && meta.compilerOptions != null && meta.compilerOptions.rootDir != null) 
+          srcRoot = path.resolve(rootDir,meta.compilerOptions.rootDir);
+        if(meta != null && meta.include != null) tsInclude = meta.include;
+      }
+      catch(e) {
+        console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
+      }
     }
 
     if(packagePath != null) {
       let data = fs.readFileSync(packagePath);
 
-       try {
-         let meta = JSON.parse(data);
+      try {
+        let meta = JSON.parse(data);
  
-         if(meta != null && meta.name != null) packageName = meta.name;
-       }
-       catch(e) {
-         console.err(`could not parse ${packagePath}: ${e.what()}`);
-       }
+        if(meta != null && meta.name != null) packageName = meta.name;
+      }
+      catch(e) {
+        console.err(`could not parse ${packagePath}: ${e.what()}`);
+      }
     }
 
     if(outDir == null) outDir = rootDir;
@@ -95,12 +98,12 @@
     let docsPath = path.resolve(outDir,"docs");
 
     try {
-       let stats = fs.statSync(docsPath);
+      let stats = fs.statSync(docsPath);
     
-       if(!stats.isDirectory()) throw(`${docsPath} is not a valid directory`);
+      if(!stats.isDirectory()) throw(`${docsPath} is not a valid directory`);
     }
     catch(e) {
-       fs.mkdirSync(docsPath);
+     yield mkdirpSync(docsPath);
     }
 
 
