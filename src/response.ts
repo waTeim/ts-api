@@ -1,12 +1,18 @@
+const uuidv1 = require('uuid/v1');
+
 /**
  * General REST processing in case of an error 
  */
 function error(e:any,req:any,res:any,next:any) {
   if(res._header == null) {
-    
+
     if(e.stack) {
-      if(e.status != null) res.status(e.status).send(`<pre>${e.stack}</pre>`);
-      else res.send(`<pre>${e.stack}</pre>`);
+      let ref = uuidv1();
+      let status = 500;
+
+      if(e.status) status = e.status;
+      console.log(`response error ${ref}:`,e.stack);
+      res.status(status).send(`<pre>\nerror: ref ${ref}, check logs for further information\n</pre>`);
     }
     else {
       if(e.status != null) res.status(e.status).send({ error:e });

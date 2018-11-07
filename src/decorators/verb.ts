@@ -68,7 +68,10 @@ export default function verb(target:any,key:string,originalMethod:any,errorHandl
                   }
                   catch(e) { reject(e); }
                 }
-                else reject(reason);
+                else {
+                  if(typeof reason == 'object') reason.status = 500;
+                  reject(reason);
+                }
               }
             );
           });
