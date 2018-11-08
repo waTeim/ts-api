@@ -695,16 +695,8 @@ function genSwaggerPreamble(def: any,projectName:string,router:Router,controller
   let comments = "";
 
   if(router.comment != null && router.comment != '') comments += router.comment + "\n\n";
-  for(let i = 0;i < controllers.length;i++) {
-    if(controllers[i].comment != null && controllers[i].comment != '') {
-      if(comments.length != 0) comments += "\n\n";
-      comments += decompositionToPath(controllers[i].decomposition,"swagger") + "\n\n";
-      comments += controllers[i].comment;
-    }
-  }
   def.openapi = "3.0.0";
   def.info = { version:"1.0.0", title:projectName };
-
   if(comments.length != 0) def.info.description = comments;
 }
 
@@ -715,13 +707,16 @@ function genSwaggerPreamble(def: any,projectName:string,router:Router,controller
  * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerTags(def: any,router:Router,controllers:Controller[]): void {
-  let tags:any[] = [];
+function genSwaggerRootTags(def: any,router:Router,controllers:Controller[]): void {
+  let tags = {};
 
   for(let i = 0;i < controllers.length;i++) {
-    tags.push({ path:decompositionToPath(controllers[i].decomposition,"swagger") });
+    let tag = decompositionToPath(controllers[i].decomposition,"swagger");
+
+    if(controllers[i].comment != null && controllers[i].comment != '')
+      tags[tag] = { description:controllers[i].comment };
   }
-  //def.tags = tags;
+  def.tags = tags;
 }
 
 function isURLParam(id:string,router:Router,controller:Controller,methodPathDecomposition:PathDecomposition):boolean {
@@ -1097,7 +1092,7 @@ function genSources(
   checkFile.write(contents_part3);
 
   genSwaggerPreamble(swaggerDefinitions,packageName,routers[0],controllers);
-  genSwaggerTags(swaggerDefinitions,routers[0],controllers);
+  genSwaggerRootTags(swaggerDefinitions,routers[0],controllers);
   genSwaggerRoutes(swaggerDefinitions,synthesizedTypes,routers[0],controllers);
   for(let synthesizedTypename in synthesizedTypes) definitions[synthesizedTypename] = synthesizedTypes[synthesizedTypename];
   swaggerDefinitions.components = { schemas:definitions };

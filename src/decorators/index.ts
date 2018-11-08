@@ -7,7 +7,7 @@ import put from "./put";
 import router from "./router";
 import urlParam from "./urlParam";
 
-export default { 
+export { 
   all,
   controller,
   del,

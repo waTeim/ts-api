@@ -5,7 +5,6 @@ const uuidv1 = require('uuid/v1');
  */
 function error(e:any,req:any,res:any,next:any) {
   if(res._header == null) {
-
     if(e.stack) {
       let ref = uuidv1();
       let status = 500;
