@@ -933,7 +933,7 @@ function genSwaggerRoutes(def: any,synthesizedTypes:any,router:Router,controller
   genSwaggerPaths(def,synthesizedTypes,router,controllers);
 }
 
-function genControllerArgListA(params:any[],endpointName:string): string {
+function genControllerArgListA(dataSource:string,params:any[],endpointName:string): string {
   let output = "";
 
   for(let i = 0;i < params.length;i++) {
@@ -941,11 +941,11 @@ function genControllerArgListA(params:any[],endpointName:string): string {
       if(params[i].kind == "urlParam")
         output += `      const ${params[i].id} = (typeof req.params.${params[i].id} == "string")?JSON.parse(req.params.${params[i].id}):req.params.${params[i].id};\n`;
       else
-        output += `      const ${params[i].id} = (typeof req.body.${params[i].id} == "string")?JSON.parse(req.body.${params[i].id}):req.body.${params[i].id};\n`;
+        output += `      const ${params[i].id} = (typeof req.${dataSource}.${params[i].id} == "string")?JSON.parse(req.${dataSource}.${params[i].id}):req.${dataSource}.${params[i].id};\n`;
     }
     else {
       if(params[i].kind == "urlParam") output += `      const ${params[i].id} = req.params.${params[i].id};\n`;
-      else output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
+      else output += `      const ${params[i].id} = req.${dataSource}.${params[i].id};\n`;
     }
   }
   output += `      const _x = await controller.${endpointName}(`;
@@ -957,7 +957,7 @@ function genControllerArgListA(params:any[],endpointName:string): string {
   return output;
 }
 
-function genControllerArgListB(params:any[],endpointName:string): string {
+function genControllerArgListB(dataSource:string,params:any[],endpointName:string): string {
   let output = "";
   let argListFormal = [];
 
@@ -979,18 +979,18 @@ function genControllerArgListB(params:any[],endpointName:string): string {
 
         for(let propertyName in properties) {
           if(properties[propertyName].type == "object" || properties[propertyName].type == null) {
-            output += `      const ${propertyName} = (typeof req.body.${propertyName} == "string")?JSON.parse(req.body.${propertyName}):req.body.${propertyName};\n`;
+            output += `      const ${propertyName} = (typeof req.${dataSource}.${propertyName} == "string")?JSON.parse(req.${dataSource}.${propertyName}):req.${dataSource}.${propertyName};\n`;
             objArgs.push(propertyName);
           }
           else {
-            output += `      const ${propertyName} = req.body.${propertyName};\n`;
+            output += `      const ${propertyName} = req.${dataSource}.${propertyName};\n`;
             objArgs.push(propertyName);
           }
         }
         argListFormal.push(objArgs);
       }
       else {
-        output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
+        output += `      const ${params[i].id} = req.${dataSource}.${params[i].id};\n`;
         argListFormal.push(params[i].id);
       }
     }
@@ -1078,6 +1078,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     let rfunc = endpoints[i].type;
     let endpointName = endpoints[i].decorates;
     let path = endpointName;
+    let dataSource = "query";
   
     if(endpoints[i].decoratorArgs.length != 0) path = endpoints[i].decoratorArgs[0];
 
@@ -1093,6 +1094,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     output += `    try {\n`;
     if(rfunc != 'get' && rfunc != 'put') {
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
+      dataSource = "body";
     }
     output += `      const controller = new ${endpoints[i].className}Module.default(root.context,binding,req,res,next);\n`
   
@@ -1122,8 +1124,8 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
       else
         params.push({ id:parm.id, kind: "regular", type:parmType });
     }
-    if(params.length - numURLParam > 1) output += genControllerArgListA(params,endpointName);
-    else output += genControllerArgListB(params,endpointName);
+    if(params.length - numURLParam > 1) output += genControllerArgListA(dataSource,params,endpointName);
+    else output += genControllerArgListB(dataSource,params,endpointName);
     output += `      success_response(_x,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
