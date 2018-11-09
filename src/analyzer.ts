@@ -777,17 +777,40 @@ function genSwaggerRequestParameters(router:Router,controller:Controller,method:
 
 function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Controller,method:DecoratedFunction,methodPathDecomposition:PathDecomposition) {
   let parameters = [];
+  let parametersEx = [];
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
     let parameterTypedef:any = typeToJSON(parameter.type,null,{ docRoot:"#/components/schemas" });
+    let parameterTypedefEx:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
 
     if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
       parameters.push({ name:parameter.id, required:parameterTypedef.required, schema:parameterTypedef });
+      parametersEx.push({ name:parameter.id, required:parameterTypedefEx.required, schema:parameterTypedefEx });
     }
   }
   if(parameters.length == 1) {
-    return { required:parameters[0].required, content:{ "application/json":{ schema:parameters[0].schema }}};
+    let jsonContent = { schema:parameters[0].schema };
+    let formContent = { schema:parametersEx[0].schema };
+    let encoding = {};
+    let encodingPopulated = false;
+
+    for(let property in parametersEx[0].schema.properties) {
+      if(parametersEx[0].schema.properties[property].type == "object" || parametersEx[0].schema.properties[property] == null) {
+        encoding[property] = { contentType:"application/json" };
+        encodingPopulated = true;
+      }
+    }
+
+    if(encodingPopulated) formContent["encoding"] = encoding;
+
+    return { 
+      required:parameters[0].required, 
+      content:{ 
+        "application/json":jsonContent,
+        "application/x-www-form-urlencoded":formContent
+      }
+    };
   }
   else if(parameters.length > 1) {
     let methodName = method.decorates;
@@ -795,16 +818,34 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let properties = {};
     let required = [];
     let notAllOptional = false;
+    let inlineSchema = { type:"object", properties:properties };
+    let encoding = {};
+    let encodingPopulated = false;
 
     for(let i = 0;i < parameters.length;i++) {
       properties[parameters[i].name] = parameters[i].schema;
+      if(parameters[i].schema.type == "object" || parameters[i].schema.type == null) {
+        encoding[parameters[i].name] = { contentType:"application/json" };
+        encodingPopulated = true;
+      }
       if(parameters[i].required) {
         required.push(parameters[i].name);
         notAllOptional = true;
       }
     }
+
+    let jsonContent = { schema:{ "$ref":`#/components/schemas/${rqbName}` }};
+    let formContent = { schema:inlineSchema };
+
+    if(encodingPopulated) formContent["encoding"] = encoding;
     synthesizedTypes[rqbName] = { type:"object", properties:properties, required:required, description:`synthesized request body type for ${controller.className}.${methodName}` };
-    return { required:notAllOptional, content:{ "application/json":{ schema:{ "$ref":`#/components/schemas/${rqbName}` }}}};
+    return { 
+      required:notAllOptional,
+      content:{ 
+        "application/json":jsonContent,
+        "application/x-www-form-urlencoded":formContent
+      }
+    };
   }
   else return { content:{}};
 }
@@ -892,6 +933,75 @@ function genSwaggerRoutes(def: any,synthesizedTypes:any,router:Router,controller
   genSwaggerPaths(def,synthesizedTypes,router,controllers);
 }
 
+function genControllerArgListA(params:any[],endpointName:string): string {
+  let output = "";
+
+  for(let i = 0;i < params.length;i++) {
+    if(params[i].type.type == "object" || params[i].type.type == null) {
+      if(params[i].kind == "urlParam")
+        output += `      const ${params[i].id} = (typeof req.params.${params[i].id} == "string")?JSON.parse(req.params.${params[i].id}):req.params.${params[i].id};\n`;
+      else
+        output += `      const ${params[i].id} = (typeof req.body.${params[i].id} == "string")?JSON.parse(req.body.${params[i].id}):req.body.${params[i].id};\n`;
+    }
+    else {
+      if(params[i].kind == "urlParam") output += `      const ${params[i].id} = req.params.${params[i].id};\n`;
+      else output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
+    }
+  }
+  output += `      const x = await controller.${endpointName}(`;
+  for(let i = 0;i < params.length;i++) {
+    if(i != 0) output += ',';
+    output += `${params[i].id}`;
+  }
+  output += `);\n\n`;
+  return output;
+}
+
+function genControllerArgListB(params:any[],endpointName:string): string {
+  let output = "";
+  let argListFormal = [];
+
+  for(let i = 0;i < params.length;i++) {
+    if(params[i].kind == "urlParam") {
+      if(params[i].type.type == "obiect" || params[i].type.type == null) {
+        output += `      const ${params[i].id} = (typeof req.params.${params[i].id} == "string")?JSON.parse(req.params.${params[i].id}):req.params.${params[i].id};\n`;
+        argListFormal.push(params[i].id);
+      }
+      else {
+        output += `      const ${params[i].id} = req.params.${params[i].id};\n`;
+        argListFormal.push(params[i].id);
+      }
+    }
+    else {
+      if(params[i].type.type = "object") {
+        let properties = params[i].type.type.properties;
+
+        for(let propertyName in properties) {
+          if(properties[propertyName].type == "object" || properties[propertyName].type == null) {
+            output += `      const ${propertyName} = (typeof req.body.${propertyName} == "string")?JSON.parse(req.body.${propertyName}):req.body.${propertyName};\n`;
+            argListFormal.push(propertyName);
+          }
+          else {
+            output += `      const ${propertyName} = req.body.${propertyName};\n`;
+            argListFormal.push(propertyName);
+          }
+        }
+      }
+      else {
+        output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
+        argListFormal.push(params[i].id);
+      }
+    }
+  }
+  output += `      const x = await controller.${endpointName}(`;
+  for(let i = 0;i < argListFormal.length;i++) {
+    if(i != 0) output += ',';
+    output += `${argListFormal[i]}`;
+  }
+  output += `);\n\n`;
+  return output;
+}
+
 /**
  * Generate the express routes fron the router, controller, and method declarations.  Make
  * use of the fact that the generated file '__check.js' will always be located in the same
@@ -943,7 +1053,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   output += `const swaggerUi = api.swaggerUi;\n`;
   output += `const swaggerDocument = require('./docs/swagger.json');\n`;
   output += `\nlet binding = new EndpointCheckBinding(require('./__check'));\n`;
-  output += `\nmodule.exports = function(apex) {\n`;
+  output += `\nmodule.exports = function(root) {\n`;
 
   let routerPath = decompositionToPath(router.decomposition,"express");
 
@@ -951,7 +1061,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
 
     if(routerPath != "") path = `/${routerPath}${path}`;
-    output += `  apex.addRouter('${path}','${controllers[i].className}');\n`;
+    output += `  root.addRouter('${path}','${controllers[i].className}');\n`;
   }
 
   for(let i = 0;i < endpoints.length;i++) {
@@ -969,50 +1079,38 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     // invoking the method with those parameters.  Assume coordiation with the 
     // express verb decorator defined in this package.
     output += `\n`;
-    output += `  apex.getExpressRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
+    output += `  root.getExpressRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
     output += `    try {\n`;
     if(rfunc != 'get' && rfunc != 'put') {
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
     }
-    output += `      const controller = new ${endpoints[i].className}Module.default(apex.context,binding,req,res,next);\n`
-    output += `      const x = await controller.${endpointName}(`;
+    output += `      const controller = new ${endpoints[i].className}Module.default(root.context,binding,req,res,next);\n`
   
     let params = [];
     let numURLParam = 0;
 
+    // Gather parameter metadata prior to output
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
       let parm = endpoints[i].methodParameters[j];
+      let parmType = typeToJSON(parm.type,null,{ expandRefs:true, docRoot:"#/components/schemas" })
 
       if(parm.decorators != null) {
         for(let decoratorName in parm.decorators) {
           if(decoratorName == 'urlParam') {
             let decoratorArgs = parm.decorators[decoratorName];
 
-            if(decoratorArgs.length) params.push({ id:decoratorArgs[0], type:"urlParam" });
-            else params.push({ id:parm.id, type: "urlParam" });
+            if(decoratorArgs.length) params.push({ id:decoratorArgs[0], kind:"urlParam" });
+            else params.push({ id:parm.id, kind: "urlParam", type:parmType });
           }
         }
       }
       else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition))
-        params.push({ id:parm.id, type: "urlParam" });
+        params.push({ id:parm.id, kind: "urlParam", type:parmType });
       else
-        params.push({ id:parm.id, type: "regular" });
+        params.push({ id:parm.id, kind: "regular", type:parmType });
     }
-    for(let j = 0;j < params.length;j++) {
-      if(j != 0) output += ',';
-      if(params[j].type == "urlParam") output += `req.params.${params[j].id}`;
-      else {
-        if(params.length - numURLParam == 1) {
-          if(rfunc == 'get') output += `req.query`;
-          else output += `req.body`;
-        }
-        else {
-          if(rfunc == 'get') output += `req.query.${params[j].id}`;
-          else output += `req.body.${params[j].id}`;
-        }
-      }
-    }
-    output += `);\n\n`;
+    if(params.length - numURLParam > 1) output += genControllerArgListA(params,endpointName);
+    else output += genControllerArgListB(params,endpointName);
     output += `      success_response(x,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
@@ -1022,8 +1120,8 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   let docPath = '/docs';
 
   if(routerPath != "") docPath = `/${routerPath}${docPath}`;
-  output += `  apex.getExpressRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
-  output += `  return apex.getExpressRouter();\n`;
+  output += `  root.getExpressRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  return root.getExpressRouter();\n`;
   output += `}\n`;
 
   routesFile.write(output);
