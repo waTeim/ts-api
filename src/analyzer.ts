@@ -974,7 +974,7 @@ function genControllerArgListB(params:any[],endpointName:string): string {
     }
     else {
       if(params[i].type.type = "object") {
-        let properties = params[i].type.type.properties;
+        let properties = params[i].type.properties;
 
         for(let propertyName in properties) {
           if(properties[propertyName].type == "object" || properties[propertyName].type == null) {
