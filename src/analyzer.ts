@@ -948,7 +948,7 @@ function genControllerArgListA(params:any[],endpointName:string): string {
       else output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
     }
   }
-  output += `      const x = await controller.${endpointName}(`;
+  output += `      const _x = await controller.${endpointName}(`;
   for(let i = 0;i < params.length;i++) {
     if(i != 0) output += ',';
     output += `${params[i].id}`;
@@ -973,19 +973,21 @@ function genControllerArgListB(params:any[],endpointName:string): string {
       }
     }
     else {
-      if(params[i].type.type = "object") {
+      if(params[i].type.type == "object") {
         let properties = params[i].type.properties;
+        let objArgs = [];
 
         for(let propertyName in properties) {
           if(properties[propertyName].type == "object" || properties[propertyName].type == null) {
             output += `      const ${propertyName} = (typeof req.body.${propertyName} == "string")?JSON.parse(req.body.${propertyName}):req.body.${propertyName};\n`;
-            argListFormal.push(propertyName);
+            objArgs.push(propertyName);
           }
           else {
             output += `      const ${propertyName} = req.body.${propertyName};\n`;
-            argListFormal.push(propertyName);
+            objArgs.push(propertyName);
           }
         }
+        argListFormal.push(objArgs);
       }
       else {
         output += `      const ${params[i].id} = req.body.${params[i].id};\n`;
@@ -993,10 +995,18 @@ function genControllerArgListB(params:any[],endpointName:string): string {
       }
     }
   }
-  output += `      const x = await controller.${endpointName}(`;
+  output += `      const _x = await controller.${endpointName}(`;
   for(let i = 0;i < argListFormal.length;i++) {
     if(i != 0) output += ',';
-    output += `${argListFormal[i]}`;
+    if(typeof argListFormal[i] == "string") output += `${argListFormal[i]}`;
+    else {
+      output += "{ ";
+      for(let j = 0;j < argListFormal[i].length;j++) {
+        if(j != 0) output += ', ';
+        output += `${argListFormal[i][j]}:${argListFormal[i][j]}`;
+      }
+      output += "}";
+    }
   }
   output += `);\n\n`;
   return output;
@@ -1101,17 +1111,20 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
 
             if(decoratorArgs.length) params.push({ id:decoratorArgs[0], kind:"urlParam" });
             else params.push({ id:parm.id, kind: "urlParam", type:parmType });
+            numURLParam += 1;
           }
         }
       }
-      else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition))
+      else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].className],endpointPathDecomposition)) {
         params.push({ id:parm.id, kind: "urlParam", type:parmType });
+        numURLParam += 1;
+      }
       else
         params.push({ id:parm.id, kind: "regular", type:parmType });
     }
     if(params.length - numURLParam > 1) output += genControllerArgListA(params,endpointName);
     else output += genControllerArgListB(params,endpointName);
-    output += `      success_response(x,req,res,next);\n`;
+    output += `      success_response(_x,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
     output += `  });\n`;
