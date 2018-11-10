@@ -2,8 +2,8 @@
   "name": "ts-api",
   "version": "2.3.4",
   "description": "Create documented REST API using controllers and interfaces in typescript",
-  "main": "lib",
-  "types": "lib",
+  "main": "dist",
+  "types": "dist",
   "repository": {
     "type": "git",
     "url": "git@github.com:waTeim/ts-api.git"
@@ -22,7 +22,8 @@
     "uuid": "^3.3.2"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha --reporter spec",
+    "build": "tsc"
   },
   "bin": {
     "cg": "./bin/cg"
@@ -30,6 +31,8 @@
   "author": "Jeff Waller",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^8.10.0"
+    "@types/node": "^8.10.0",
+    "chai": "^4.2.0",
+    "mocha": "^5.2.0"
   }
 }

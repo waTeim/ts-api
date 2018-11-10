@@ -2,10 +2,10 @@
   "baseUrl": "types",
   "compilerOptions": {
     "declaration": true,
-    "declarationDir": "lib",
+    "declarationDir": "dist",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "outDir": "lib",
+    "outDir": "dist",
     "sourceMap": true,
     "target":"ES5"
   },
