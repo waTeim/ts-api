@@ -9,6 +9,7 @@ output
 dump.rdb
 npm-debug.log
 nohup.out
+lib/
 
 # OS generated files #
 ######################
