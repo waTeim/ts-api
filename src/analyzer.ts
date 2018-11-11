@@ -216,8 +216,8 @@ function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   let obj = typeToJSON(typeDesc.objectType,jsDoc,{ expandRefs:true });
   let res;
 
-  console.log("index = ",index);
-  console.log("objectType = ",obj);
+  //console.log("index = ",index);
+  //console.log("objectType = ",obj);
 
   return res;
 }
