@@ -27,7 +27,7 @@
   const mkdirp = require('mkdirp');
   const Promise = require('bluebird');
   const findRoot = require('find-root');
-  const analyzer = require('../lib/analyzer.js')
+  const analyzer = require('../dist/analyzer.js')
 
   let program = require('commander');
 

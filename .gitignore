@@ -6,8 +6,19 @@ npm-debug.log
 output
 lib
 *~
+.idea/*
+dump.rdb
+npm-debug.log
+nohup.out
+dist/
+
 # OS generated files #
 ######################
 .DS_Store
 .DS_Store?
 *.tar.gz
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
