@@ -185,6 +185,43 @@ function literalToJSON(typeDesc:any,jsDoc:any):Object {
   throw("unknown literal type (" + literal + ")");
 }
 
+function typeliteralToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+   let typeliteralDesc = <ts.TypeLiteralNode>typeDesc;
+   let res = { oneOf:[] };
+
+   for(let i = 0;i < typeliteralDesc.members.length;i++) {
+     let typeliteralMember = typeToJSON(typeliteralDesc.members[i],null,options);
+
+     if(typeliteralMember != null) res.oneOf.push(typeliteralMember);
+   }
+   return res;
+}
+
+function tupleTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+   let tupleDesc = <ts.TupleTypeNode>typeDesc;
+   let res = { allOf:[] };
+   
+   for(let i = 0;i < tupleDesc.elementTypes.length;i++) {
+     let tupleElement = typeToJSON(tupleDesc.elementTypes[i],null,options);
+     
+     if(tupleElement != null) res.allOf.push(tupleElement);
+   }
+   return res;
+}
+
+function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+  let iaDesc = <ts.IndexedAccessTypeNode>typeDesc;
+  let indexType = checker.getTypeFromTypeNode(typeDesc.indexType);
+  let index = checker.typeToString(indexType);
+  let obj = typeToJSON(typeDesc.objectType,jsDoc,{ expandRefs:true });
+  let res;
+
+  console.log("index = ",index);
+  console.log("objectType = ",obj);
+
+  return res;
+}
+
 /**
  * This function adds the specified value tag to a JSON schema component.
  *
@@ -281,6 +318,17 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
       case ts.SyntaxKind.ParenthesizedType: break;
       case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.TypeLiteral: res = typeliteralToJSON(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.PropertySignature:
+      {
+        let propertySignatureDesc:ts.PropertySignature = <ts.PropertySignature>typeDesc;
+
+        if(propertySignatureDesc.type != null) res = typeToJSON(propertySignatureDesc.type,jsDoc);
+        else res = null;
+      }
+      break;
+      case ts.SyntaxKind.TupleType: res = tupleTypeToJSON(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc); break;
       //case ts.SyntaxKind.TypeQuery: res = { type:"type query not implemented" }; break;
       //case ts.SyntaxKind.ParenthesizedType: res = { type:"parenthesized type not implemented" }; break;
       default: unknown = true; break;
@@ -1535,6 +1583,7 @@ function generate(
       else if(decl.kind == ts.SyntaxKind.TypeAliasDeclaration) {
         let alias = <ts.TypeAliasDeclaration>decl;
 
+        ts.forEachChild(decl,visit);
         symtab[name.text] = { type:"type", members:{}, jsDoc:null };
         symtab[name.text].comment = comment;
       }

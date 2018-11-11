@@ -19,7 +19,7 @@
     "mkdirp": "^0.5.1",
     "reflect-metadata": "^0.1.12",
     "swagger-ui-express": "^3.0.10",
-    "typescript": "2.9.2",
+    "typescript": "^3.1",
     "uuid": "^3.3.2"
   },
   "scripts": {
