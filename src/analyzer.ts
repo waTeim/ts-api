@@ -1140,7 +1140,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     output += `\n`;
     output += `  root.getExpressRouter('${endpoints[i].className}').${rfunc}('/${endpointPath}', async(req,res,next) => {\n`;
     output += `    try {\n`;
-    if(rfunc != 'get' && rfunc != 'put') {
+    if(rfunc != 'get') {
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
       dataSource = "body";
     }
