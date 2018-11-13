@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@types/node": "^8.10.0",
-    "@types/swagger-ui-express",
+    "@types/swagger-ui-express": "^3.0.0",
     "ajv": "^6.3.0",
     "bluebird": "x",
     "commander": "^2.15.1",
