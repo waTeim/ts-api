@@ -338,7 +338,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
           res = { type:"array", items:typeToJSON(arg,jsDoc,options) }
         }
         else if(typeName== "Date") {
-          res = { type:"string", format:"date-time", toDate:true }
+          res = { oneOf:[{ type:"string", format:"date" }, { type:"string", format:"date-time" }], toDate:true, encoding:"default"};
         }
         else {
           res =  maptypeDescName(docRoot,typeName);
@@ -885,14 +885,12 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let encodingPopulated = false;
 
     for(let property in parametersEx[0].schema.properties) {
-      if(parametersEx[0].schema.properties[property].type == "object" || parametersEx[0].schema.properties[property] == null) {
+      if(parametersEx[0].schema.encoding != "default" && (parametersEx[0].schema.properties[property].type == "object" || parametersEx[0].schema.properties[property] == null)) {
         encoding[property] = { contentType:"application/json" };
         encodingPopulated = true;
       }
     }
-
     if(encodingPopulated) formContent["encoding"] = encoding;
-
     return { 
       required:parameters[0].required, 
       content:{ 
@@ -907,13 +905,13 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let properties = {};
     let required = [];
     let notAllOptional = false;
-    let inlineSchema = { type:"object", properties:properties };
+    let inline = { type:"object", properties:properties, required:required };
     let encoding = {};
     let encodingPopulated = false;
 
     for(let i = 0;i < parameters.length;i++) {
       properties[parameters[i].name] = parameters[i].schema;
-      if(parameters[i].schema.type == "object" || parameters[i].schema.type == null) {
+      if(parameters[i].schema.encoding != "default" && (parameters[i].schema.type == "object" || parameters[i].schema.type == null)) {
         encoding[parameters[i].name] = { contentType:"application/json" };
         encodingPopulated = true;
       }
@@ -924,7 +922,7 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     }
 
     let jsonContent = { schema:{ "$ref":`#/components/schemas/${rqbName}` }};
-    let formContent = { schema:inlineSchema };
+    let formContent = { schema:inline };
 
     if(encodingPopulated) formContent["encoding"] = encoding;
     synthesizedTypes[rqbName] = { type:"object", properties:properties, required:required, description:`synthesized request body type for ${controller.className}.${methodName}` };
@@ -947,7 +945,7 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
  * @param {string} prefix top level path to pre-pend to all paths.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerPaths(def: any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
+function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
   let paths:Object = {};
   let p1 = decompositionToPath(router.decomposition,"swagger");
 
@@ -1016,7 +1014,7 @@ function genSwaggerPaths(def: any,synthesizedTypes:any,router:Router,controllers
  * @param {Router} router definition.
  * @param {Controller[]} array of controller definitions.
  */
-function genSwaggerRoutes(def: any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
+function genSwaggerRoutes(def:any,synthesizedTypes:any,router:Router,controllers:Controller[]): void {
   let prefix = decompositionToPath(router.decomposition,"swagger");
    
   genSwaggerPaths(def,synthesizedTypes,router,controllers);
@@ -1026,7 +1024,7 @@ function genControllerArgListA(dataSource:string,params:any[],endpointName:strin
   let output = "";
 
   for(let i = 0;i < params.length;i++) {
-    if(params[i].type.type == "object" || params[i].type.type == null) {
+    if((params[i].type.type == "object" || params[i].type.type == null) && params[i].type.encoding != "default") {
       if(params[i].kind == "urlParam")
         output += `      const ${params[i].id} = (typeof req.params.${params[i].id} == "string")?JSON.parse(req.params.${params[i].id}):req.params.${params[i].id};\n`;
       else
@@ -1052,7 +1050,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
 
   for(let i = 0;i < params.length;i++) {
     if(params[i].kind == "urlParam") {
-      if(params[i].type.type == "obiect" || params[i].type.type == null) {
+      if((params[i].type.type == "object" || params[i].type.type == null) && params[i].type.encoding != "default") {
         output += `      const ${params[i].id} = (typeof req.params.${params[i].id} == "string")?JSON.parse(req.params.${params[i].id}):req.params.${params[i].id};\n`;
         argListFormal.push(params[i].id);
       }
@@ -1062,7 +1060,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
       }
     }
     else {
-      if(params[i].type.type == "object") {
+      if(params[i].type.type == "object" && params[i].type.encoding == "default") {
         let properties = params[i].type.properties;
         let objArgs = [];
 

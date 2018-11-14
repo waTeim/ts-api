@@ -1,6 +1,6 @@
 {
   "name": "ts-api",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Create documented REST API using controllers and interfaces in typescript",
   "main": "dist",
   "types": "dist",
@@ -19,7 +19,7 @@
     "find-root": "x",
     "glob": "^7.1.2",
     "reflect-metadata": "^0.1.12",
-    "swagger-ui-express": "^3.0.10",
+    "swagger-ui-express": "^4.0.1",
     "typescript": "^3.1",
     "uuid": "^3.3.2"
   },
