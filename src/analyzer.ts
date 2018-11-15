@@ -344,7 +344,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
           res =  maptypeDescName(docRoot,typeName);
           if(res != null && res['$ref'] != null && options && options.expandRefs) {
             if(symtab[typeName] == null) throw(`undefined type reference ${typeName}`);
-            res = symtab[typeName].def;
+            res = symtab[typeName].schema;
           }
         }
       }
@@ -437,11 +437,11 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
       case ts.SyntaxKind.ArrayType: markAsRelevant(typeDesc.elementType,jsDoc,options); break;
       case ts.SyntaxKind.TypeReference:
       {
+        let alias = <ts.TypeAliasDeclaration>typeDesc;
         let typeName = getTypeName(typeDesc);
         let args = (<any>typeDesc).typeArguments;
 
         if(symtab[typeName] == null) {
-          console.log(typeDesc);
           throw(`undefined type ${typeName} in relevancy tree`);
         }
         symtab[typeName].relevant = true;
@@ -451,10 +451,11 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
         for(let key in symtab[typeName].members) {
           markAsRelevant(symtab[typeName].members[key].type,jsDoc,options);
         }
+        if(symtab[typeName].decl != null && symtab[typeName].decl.type != null) markAsRelevant(symtab[typeName].decl.type,jsDoc,options);
       }
       break;
-      case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.IntersectionType: markIntersectionAsRelevant(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.IntersectionType: markIntersectionAsRelevant(typeDesc,jsDoc,options); break;
       default: break;
     }
   }
@@ -548,17 +549,21 @@ function symtabToSchemaDefinitions(): Object {
   let res = {};
 
   for(let ikey in symtab) {
-    if(symtab[ikey].type == "type" && symtab[ikey].relevant) {
+    if(symtab[ikey].kind == "type" && symtab[ikey].relevant) {
       let required = [];
+      let decl = symtab[ikey].decl;
 
-      res[ikey] = { type:"object", properties:{} };
-      for(let mkey in symtab[ikey].members) {
-        res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
-        if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+      if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
+        res[ikey] = { type:"object", properties:{} };
+        for(let mkey in symtab[ikey].members) {
+          res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
+          if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+        }
       }
+      else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:"#/components/schemas" });
       if(required.length > 0) res[ikey].required = required;
       if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
-      symtab[ikey].def = res[ikey];
+      symtab[ikey].schema = res[ikey];
     }
   }
   return res;
@@ -597,7 +602,7 @@ function symtabToControllerDefinitions(): Controller[] {
   let res:Controller[] = [];
 
   for(let ikey in symtab) {
-    if(symtab[ikey].type == "controller") {
+    if(symtab[ikey].kind == "controller") {
       let className = symtab[ikey].name;
       let path = className;
       let comment = symtab[className].comment;
@@ -627,7 +632,7 @@ function symtabToRouterDefinitions(): Router[] {
   let res:Router[] = [];
 
   for(let ikey in symtab) {
-    if(symtab[ikey].type == "router") {
+    if(symtab[ikey].kind == "router") {
       let className = symtab[ikey].name;
       let path = className;
       let comment = symtab[className].comment;
@@ -734,7 +739,7 @@ function genMethodEntry(className,methodName,parameterNames,schema): string {
  */
 function addController(className:string,fileName: string,comment: string): void {
   if(symtab[className] != null) throw("multiple references to same class: " + className);
-  symtab[className] = { type:"controller", name:className, fileName:fileName, comment:comment, methods:[], args:[] };
+  symtab[className] = { kind:"controller", name:className, fileName:fileName, comment:comment, methods:[], args:[] };
 }
 
 /**
@@ -745,7 +750,7 @@ function addController(className:string,fileName: string,comment: string): void 
  * @param {string} comment a JSDoc type comment of the router.
  */
 function addRouter(className:string,fileName: string,comment: string): void {
-  symtab[className] = { type:"router", name:className, fileName:fileName, comment:comment, args:[] };
+  symtab[className] = { kind:"router", name:className, fileName:fileName, comment:comment, args:[] };
 }
 
 /**
@@ -1601,34 +1606,27 @@ function generate(
 
       if(name != null) symbol = checker.getSymbolAtLocation(name);
       if(name != null) comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
-      if(isNodeExported(node)) {
- 
-        if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
-          ts.forEachChild(decl,visit);
-          symtab[name.text] = { type:"type", members:{}, jsDoc:null };
-          symtab[name.text].comment = comment;
-        }
-        else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
-          if(name != null) {
-            let tags = ts.displayPartsToString(symbol.getJsDocTags());
-  
-            symtab[name.text] = { type:"type", members:{}, jsDoc:null };
-            symtab[name.text].comment = comment;
-            if(tags != "") {
-              symtab[name.text].jsDoc = doctrine.parse(tags);
-              //console.log(JSON.stringify(symtab[name.text].jsDoc,null,2));
-            }
-            ts.forEachChild(decl,visit2);
-          }
-        }
-      }
-      else if(decl.kind == ts.SyntaxKind.TypeAliasDeclaration) {
+      if(decl.kind == ts.SyntaxKind.TypeAliasDeclaration) {
         let alias = <ts.TypeAliasDeclaration>decl;
 
         ts.forEachChild(decl,visit);
-        symtab[name.text] = { type:"type", members:{}, jsDoc:null };
-        symtab[name.text].def = typeToJSON(alias.type,null);
+        symtab[name.text] = { kind:"type", decl:node, members:{}, jsDoc:null };
         symtab[name.text].comment = comment;
+      }
+      else if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
+        ts.forEachChild(decl,visit);
+        symtab[name.text] = { kind:"type", decl:node, members:{}, jsDoc:null };
+        symtab[name.text].comment = comment;
+      }
+      else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
+        if(name != null) {
+          let tags = ts.displayPartsToString(symbol.getJsDocTags());
+  
+          symtab[name.text] = { kind:"type", decl:node, members:{}, jsDoc:null };
+          symtab[name.text].comment = comment;
+          if(tags != "") symtab[name.text].jsDoc = doctrine.parse(tags);
+          ts.forEachChild(decl,visit2);
+        }
       }
     }
   }
