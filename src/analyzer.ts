@@ -1392,7 +1392,8 @@ function generate(
  srcRoot: string,
  checkFile: NodeJS.ReadWriteStream,
  swaggerFile: NodeJS.ReadWriteStream,
- routesFile: NodeJS.ReadWriteStream
+ routesFile: NodeJS.ReadWriteStream,
+ debugMode: boolean
 ): void {
   let fa = getFilenames(patterns);
   let program = ts.createProgram(fa,options);
@@ -1637,7 +1638,9 @@ function generate(
   // automatic REST endpoints (which typeshcekcing) as well as
   // accompanying swagger.
   for(const sourceFile of program.getSourceFiles()) {
-    console.log("visiting file: ",sourceFile.fileName);
+    if (debugMode === true) {
+      console.log("visiting file: ",sourceFile.fileName);
+    }
     ts.forEachChild(sourceFile,visit);
   }
   connectMethods(endpoints);
@@ -1656,7 +1659,8 @@ module.exports = {
       env.srcRoot,
       checkFile,
       swaggerFile,
-      routesFile
+      routesFile,
+      env.debug
     );
   }
 }
