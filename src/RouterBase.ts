@@ -15,8 +15,8 @@ export default class RouterBase {
     if(name == null) return this.root;
     return this.routers[name];
   }
-  addRouter(path:string,name:string):void { 
-    this.routers[name] = express.Router();
+  addRouter(path:string,name:string,options):void { 
+    this.routers[name] = express.Router(options);
     this.root.use(path,this.routers[name]);
   };
 }

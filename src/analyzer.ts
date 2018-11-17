@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as glob from "glob";
 import * as doctrine from "doctrine";
 import * as path from "path";
+import * as redoc from "./Redoc";
 
 const tsany = ts as any;
 
@@ -218,7 +219,7 @@ function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   let res;
 
   if(index == "ArrayBuffer" && objs == "ArrayBufferTypes") return { type:"string", hint:{ encoding:"base64" }};
-  return typeToJSON(typeDesc.objectType,jsDoc);
+  return typeToJSON(typeDesc.objectType,jsDoc,options);
 }
 
 function mappedTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
@@ -242,7 +243,7 @@ function conditionalTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 
   ///console.log("conditional type = ",checker.typeToString(type));
 
-  return typeToJSON(conditionalDesc.extendsType,jsDoc);
+  return typeToJSON(conditionalDesc.extendsType,jsDoc,options);
 }
 
 /**
@@ -353,7 +354,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       {
         let propertySignatureDesc:ts.PropertySignature = <ts.PropertySignature>typeDesc;
 
-        if(propertySignatureDesc.type != null) res = typeToJSON(propertySignatureDesc.type,jsDoc);
+        if(propertySignatureDesc.type != null) res = typeToJSON(propertySignatureDesc.type,jsDoc,options);
         else res = null;
       }
       break;
@@ -361,14 +362,14 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       case ts.SyntaxKind.ConstructorType: /* console.log(`ignoring constructor type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.TypeQuery: /* console.log(`ignoring type query ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.ParenthesizedType: /* console.log(`ignoring paranthesized type ${checker.typeToString(type)}`) */; break;
-      case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc,options); break;
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.ConditionalType: res = conditionalTypeToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.TypeLiteral: res = typeliteralToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.MappedType: res = mappedTypeToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.TupleType: res = tupleTypeToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc); break;
+      case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.ConditionalType: res = conditionalTypeToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.TypeLiteral: res = typeliteralToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.MappedType: res = mappedTypeToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.TupleType: res = tupleTypeToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc,options); break;
       default: unknown = true; break;
     }
     if(unknown) throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
@@ -978,7 +979,7 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
       let p3 = decompositionToPath(methodPathDecomposition,"swagger");
 
       if(methods[j].returnType != null) {
-        returnTypedef = typeToJSON(methods[j].returnType,null);
+        returnTypedef = typeToJSON(methods[j].returnType,null,{ docRoot:"#/components/schemas" });
         returnTypename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
       }
       else console.log("void return from a function",p3);
@@ -1121,7 +1122,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
  * @param {Controller[]} controllers array of method controllers
  * @param {NodeJS.ReadWriteStream} routesFile reference to the routes output file.
  */
-function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):void {
+function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controllers:Controller[],srcRoot: string,routesFile: NodeJS.ReadWriteStream):string {
   let output = `"use strict";\n\n`;
   let resolvedRoot;
   let controllerIndex = {};
@@ -1163,7 +1164,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     let path = '/' + decompositionToPath(controllers[i].decomposition,"express");
 
     if(routerPath != "") path = `/${routerPath}${path}`;
-    output += `  root.addRouter('${path}','${controllers[i].className}');\n`;
+    output += `  root.addRouter('${path}','${controllers[i].className}',{ mergeParams:true });\n`;
   }
 
   for(let i = 0;i < endpoints.length;i++) {
@@ -1225,13 +1226,23 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   }
 
   let docPath = '/docs';
+  let swaggerPath = '/docs/swagger.json';
 
-  if(routerPath != "") docPath = `/${routerPath}${docPath}`;
-  output += `  root.getExpressRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  if(routerPath != "") {
+    docPath = `/${routerPath}${docPath}`;
+    swaggerPath = `/${routerPath}${swaggerPath}`;
+  }
+  output += `  root.getExpressRouter().use('${docPath}/swagger-ui',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  root.getExpressRouter().use('${docPath}',express.static(__dirname + '/docs'));\n`;
   output += `  return root.getExpressRouter();\n`;
   output += `}\n`;
 
   routesFile.write(output);
+  return swaggerPath;
+}
+
+function genRedoc(swaggerPath:string,redocFile:NodeJS.ReadWriteStream): void {
+  redocFile.write(redoc.src(swaggerPath));
 }
 
 /**
@@ -1254,6 +1265,7 @@ function genSources(
  srcRoot: string,
  checkFile: NodeJS.ReadWriteStream,
  swaggerFile: NodeJS.ReadWriteStream,
+ redocFile: NodeJS.ReadWriteStream,
  routesFile: NodeJS.ReadWriteStream
 ) {
   let controllers:Controller[] = symtabToControllerDefinitions();
@@ -1302,7 +1314,10 @@ function genSources(
   for(let synthesizedTypename in synthesizedTypes) definitions[synthesizedTypename] = synthesizedTypes[synthesizedTypename];
   swaggerDefinitions.components = { schemas:definitions };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
-  genExpressRoutes(items,routers[0],controllers,srcRoot,routesFile);
+
+  let swaggerPath = genExpressRoutes(items,routers[0],controllers,srcRoot,routesFile);
+
+  genRedoc(swaggerPath,redocFile);
 }
 
 /**
@@ -1392,6 +1407,7 @@ function generate(
  srcRoot: string,
  checkFile: NodeJS.ReadWriteStream,
  swaggerFile: NodeJS.ReadWriteStream,
+ redocFile: NodeJS.ReadWriteStream,
  routesFile: NodeJS.ReadWriteStream,
  debugMode: boolean
 ): void {
@@ -1592,12 +1608,12 @@ function generate(
   function visit(node: ts.Node) {
 
     if(node.decorators != null) {
-       try {
-         for(const decorator of node.decorators) visitDecorator(decorator);
-       }
-       catch(e) {
-         console.log(e);
-       }
+      try {
+        for(const decorator of node.decorators) visitDecorator(decorator);
+      }
+      catch(e) {
+        console.log(e);
+      }
     }
     else if(tsany.isDeclaration(node)) {
       let decl:ts.DeclarationStatement = <ts.DeclarationStatement>node;
@@ -1638,17 +1654,17 @@ function generate(
   // automatic REST endpoints (which typeshcekcing) as well as
   // accompanying swagger.
   for(const sourceFile of program.getSourceFiles()) {
-    if (debugMode === true) {
+    if(debugMode === true) {
       console.log("visiting file: ",sourceFile.fileName);
     }
     ts.forEachChild(sourceFile,visit);
   }
   connectMethods(endpoints);
-  genSources(endpoints,packageName,srcRoot,checkFile,swaggerFile,routesFile);
+  genSources(endpoints,packageName,srcRoot,checkFile,swaggerFile,redocFile,routesFile);
 }
 
 module.exports = {
-  generate:function(env,checkFile,swaggerFile,routesFile) {
+  generate:function(env,checkFile,swaggerFile,redocFile,routesFile) {
     let src = env.programArgs.slice(2);
 
     if(src.length == 0) src = env.tsInclude;
@@ -1659,6 +1675,7 @@ module.exports = {
       env.srcRoot,
       checkFile,
       swaggerFile,
+      redocFile,
       routesFile,
       env.debug
     );

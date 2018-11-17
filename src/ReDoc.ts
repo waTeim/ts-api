@@ -1,5 +1,6 @@
-module.exports.src = `<!DOCTYPE html>
-<html>
+export function src(redocSrc) { return `
+<!DOCTYPE html>
+ <html>
   <head>
     <title>ReDoc</title>
     <!-- needed for adaptive design -->
@@ -18,7 +19,8 @@ module.exports.src = `<!DOCTYPE html>
     </style>
   </head>
   <body>
-    <redoc spec-url='http://petstore.swagger.io/v2/swagger.json'></redoc>
+    <redoc spec-url='${redocSrc}'></redoc>
     <script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"> </script>
   </body>
-</html>`;
+ </html>`;
+}

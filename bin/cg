@@ -110,17 +110,23 @@
 
     let checkPath = path.resolve(outDir,"__check.js");
     let swaggerPath = path.resolve(outDir,"docs/swagger.json");
+    let redocPath = path.resolve(outDir,"docs/redoc.html");
     let routesPath = path.resolve(outDir,"__routes.js");
     let checkFile = fs.createWriteStream(checkPath,{ mode:0o644 });
     let swaggerFile = fs.createWriteStream(swaggerPath,{ mode:0o644 });
+    let redocFile = fs.createWriteStream(redocPath,{ mode:0o644 });
     let routesFile = fs.createWriteStream(routesPath,{ mode:0o644 });
     let env = { 
-      programArgs:program.args, tsInclude:tsInclude, 
-      rootDir:rootDir, srcRoot:srcRoot, outDir:outDir, packageName:packageName,
+      programArgs: program.args,
+      tsInclude: tsInclude, 
+      rootDir: rootDir,
+      srcRoot: srcRoot,
+      outDir: outDir,
+      packageName: packageName,
       debug: program.debug
     };
 
-    analyzer.generate(env,checkFile,swaggerFile,routesFile); 
+    analyzer.generate(env,checkFile,swaggerFile,redocFile,routesFile); 
   });
 
   main();
