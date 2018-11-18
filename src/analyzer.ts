@@ -1066,7 +1066,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
       }
     }
     else {
-      if(params[i].type.type == "object" && params[i].type.encoding == "default") {
+      if(params[i].type.type == "object") {
         let properties = params[i].type.properties;
         let objArgs = [];
 
@@ -1098,7 +1098,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
         if(j != 0) output += ', ';
         output += `${argListFormal[i][j]}:${argListFormal[i][j]}`;
       }
-      output += "}";
+      output += " }";
     }
   }
   output += `);\n\n`;
