@@ -991,8 +991,11 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
 
         returnTypedef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
-      
-      let path:any = { tags:[p2], operationId: p3 ? p3 : methodType.toUpperCase(), responses:responses };
+
+      // operationId is a unique identifier (across entire doc) for an operation
+      let operationId = controllers[i].className + '-' + methods[j].decorates;
+
+      let path:any = { tags:[p2], operationId: operationId, responses:responses };
       let pathId = '/' + p2 + '/' + p3;
       let pathParameters = genSwaggerPathParameters(router,controllers[i],methods[j],methodPathDecomposition);
 
