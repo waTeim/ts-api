@@ -992,7 +992,7 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
         returnTypedef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
       }
       
-      let path:any = { tags:[p2], operationId:p3, responses:responses };
+      let path:any = { tags:[p2], operationId: p3 ? p3 : methodType.toUpperCase(), responses:responses };
       let pathId = '/' + p2 + '/' + p3;
       let pathParameters = genSwaggerPathParameters(router,controllers[i],methods[j],methodPathDecomposition);
 
@@ -1233,6 +1233,9 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     swaggerPath = `/${routerPath}${swaggerPath}`;
   }
   output += `  root.getExpressRouter().use('${docPath}/swagger-ui',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  root.getExpressRouter().get('${docPath}', function(req, res, next) {\n `;
+  output += `    res.sendFile(__dirname + '/docs/redoc.html');\n`;
+  output += `  });\n`;
   output += `  root.getExpressRouter().use('${docPath}',express.static(__dirname + '/docs'));\n`;
   output += `  return root.getExpressRouter();\n`;
   output += `}\n`;
