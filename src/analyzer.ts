@@ -1034,7 +1034,7 @@ function genAssignment(id:string,dataSource:string,kind:string,type:string,conte
     if(content != "flat" && (type == "object" || type == null))
       return `      const ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
     else if(type == "array") 
-      return `      const ${id} = (typeof req.params.${id} == "array")?req.params.${id}):[req.params.${id}];\n`;
+      return `      const ${id} = Array.isArray(req.params.${id})?req.params.${id}):[req.params.${id}];\n`;
     else
       return `      const ${id} = req.params.${id};\n`;
   }
@@ -1042,7 +1042,7 @@ function genAssignment(id:string,dataSource:string,kind:string,type:string,conte
     if(content != "flat" && (type == "object" || type == null))
       return `      const ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
     else if(type == "array") 
-      return `      const ${id} = (typeof req.${dataSource}.${id} == "array")?req.${dataSource}.${id}:[req.${dataSource}.${id}];\n`;
+      return `      const ${id} = Array.isArray(req.${dataSource}.${id})?req.${dataSource}.${id}:[req.${dataSource}.${id}];\n`;
     else
       return `      const ${id} = req.${dataSource}.${id};\n`;
   }
@@ -1233,7 +1233,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     swaggerPath = `/${routerPath}${swaggerPath}`;
   }
   output += `  root.getExpressRouter().use('${docPath}/swagger-ui',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
-  output += `  root.getExpressRouter().get('${docPath}', function(req, res, next) {\n `;
+  output += `  root.getExpressRouter().get('${docPath}',function(req,res,next) {\n `;
   output += `    res.sendFile(__dirname + '/docs/redoc.html');\n`;
   output += `  });\n`;
   output += `  root.getExpressRouter().use('${docPath}',express.static(__dirname + '/docs'));\n`;
