@@ -1,6 +1,6 @@
 {
   "name": "ts-api",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "description": "Create documented REST API using controllers and interfaces in typescript",
   "main": "dist",
   "types": "dist",

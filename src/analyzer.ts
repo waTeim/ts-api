@@ -1067,8 +1067,10 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
   let argListFormal = [];
 
   for(let i = 0;i < params.length;i++) {
-    if(params[i].kind == "urlParam") 
+    if(params[i].kind == "urlParam") {
       output += genAssignment(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+      argListFormal.push(params[i].id);
+    }
     else {
       if(params[i].type.type == "object") {
         let properties = params[i].type.properties;

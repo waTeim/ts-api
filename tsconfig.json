@@ -5,9 +5,10 @@
     "declarationDir": "dist",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
+        "moduleResolution": "node",
     "outDir": "dist",
     "sourceMap": true,
-    "target":"ES5"
+    "target":"es5"
   },
   "include":[ "src/**/*" ],
   "typeRoots": ["types"]
