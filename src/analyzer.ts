@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as glob from "glob";
 import * as doctrine from "doctrine";
 import * as path from "path";
-import * as redoc from "./Redoc";
+import * as redoc from "./ReDoc";
 
 const tsany = ts as any;
 
@@ -292,6 +292,7 @@ function applyTag(schemaObject: any,tag: any): void {
 }
 
 function getTypeName(typeDesc) {
+  if(typeDesc == null || typeDesc.typeName == null) return null;
   try {
     return tsany.getTextOfNode(typeDesc.typeName);
   }
@@ -361,7 +362,8 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       case ts.SyntaxKind.FunctionType: /* console.log(`ignoring function type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.ConstructorType: /* console.log(`ignoring constructor type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.TypeQuery: /* console.log(`ignoring type query ${checker.typeToString(type)}`); */ break;
-      case ts.SyntaxKind.ParenthesizedType: /* console.log(`ignoring paranthesized type ${checker.typeToString(type)}`) */; break;
+      case ts.SyntaxKind.ParenthesizedType: /* console.log(`ignoring paranthesized type ${checker.typeToString(type)}`); */ break;
+      case ts.SyntaxKind.IndexSignature: /* console.log(`ignoring index signature ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc,options); break;
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
       case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc,options); break;
@@ -540,6 +542,14 @@ function connectMethods(endpoints:DecoratedFunction[]): void {
   }
 }
 
+function isMagic(typeName) {
+  return typeName == "Res" || typeName == "FileRef";
+}
+
+function isExplicitStatus(typeName) {
+  return typeName == "Res";
+}
+
 /**
  * This function creates the JSON schema reference document that corresponds to
  * all marked (relevant) types defined in the global symbol table created from the 
@@ -554,17 +564,21 @@ function symtabToSchemaDefinitions(): Object {
       let required = [];
       let decl = symtab[ikey].decl;
 
-      if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
-        res[ikey] = { type:"object", properties:{} };
-        for(let mkey in symtab[ikey].members) {
-          res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
-          if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+      if(!isMagic(ikey)) {
+        if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
+          if(ikey != "Res") {
+            res[ikey] = { type:"object", properties:{} };
+            for(let mkey in symtab[ikey].members) {
+              res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
+              if(!symtab[ikey].members[mkey].optional) required.push(mkey);
+            }
+          }
         }
+        else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:"#/components/schemas" });
+        if(required.length > 0) res[ikey].required = required;
+        if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
+        symtab[ikey].schema = res[ikey];
       }
-      else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:"#/components/schemas" });
-      if(required.length > 0) res[ikey].required = required;
-      if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
-      symtab[ikey].schema = res[ikey];
     }
   }
   return res;
@@ -943,6 +957,85 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
   else return { content:{} };
 }
 
+function explicitStatus(returnTypeDesc:any) {
+  let res = {};
+ 
+  let statusCodeDesc = (<any>returnTypeDesc).typeArguments[0];
+  let statusCode = checker.getTypeFromTypeNode(statusCodeDesc).value;
+  let resReturnType = (<any>returnTypeDesc).typeArguments[1];
+  let returnTypedef = typeToJSON(resReturnType,null,{ docRoot:"#/components/schemas" });
+
+  if(returnTypedef != null) res[statusCode] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
+  else res["204"] = { description:"Successful response" };
+  return res;
+}
+
+function statusReturnMerge(resX:any,statusCode:string,resN:any) {
+  if(resX[statusCode] == null) resX[statusCode] = resN;
+  else {
+    if(resX[statusCode].oneOf == null) resX[statusCode].oneOf = resX[statusCode];
+    resX[statusCode].oneOf.push(resN);
+  }
+}
+
+function genSwaggerReturn(returnTypeDesc:any,res:any) {
+  if(returnTypeDesc == null) return null;
+
+  let returnTypedef = typeToJSON(returnTypeDesc,null,{ docRoot:"#/components/schemas" });
+  let returnTypename = getTypeName(returnTypeDesc);
+
+  // If the method return type is a promise infer that this is an async function and
+  // instead use the subordinate type as the type defined by the swagger doc.
+  if(returnTypename == "Promise") {
+    let promiseArg = (<any>returnTypeDesc).typeArguments[0];
+
+    genSwaggerReturn(promiseArg,res);
+  }
+  else {
+    if(isExplicitStatus(returnTypename)) {
+      let resX:any = explicitStatus(returnTypeDesc);
+
+      for(let statusCode in resX) res[statusCode] = resX[statusCode];
+    }
+    else {
+      if(returnTypeDesc.kind == ts.SyntaxKind.UnionType) {
+        let unionDesc = <ts.UnionTypeNode>returnTypeDesc;
+        let resX = {};
+        let isMultiStatus = false;
+
+        for(let i = 0;i < unionDesc.types.length;i++) {
+          let unionElementTypename = getTypeName(unionDesc.types[i]);
+
+          if(unionElementTypename != null) {
+            if(!isExplicitStatus(unionElementTypename)) {
+              let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, docRoot:"#/components/schemas" });
+
+              if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
+            }
+            else {
+              let resY:any = explicitStatus(unionDesc.types[i]);
+
+              for(let statusCode in resY) statusReturnMerge(resX,statusCode,resY[statusCode]);
+            }
+          }
+          else {
+            let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, docRoot:"#/components/schemas" });
+
+            if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
+          }
+        }
+        for(let statusCode in resX) res[statusCode] = resX[statusCode];
+      }
+      else {
+        returnTypedef = typeToJSON(returnTypeDesc,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+        if(returnTypedef != null) res["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
+        else res["204"] = { description:"Successful response" };
+      }
+    }
+  }
+}
+
+
 /**
  * Generate swagger paths (REST endpoints) given the combination of prefix, controller
  * paths and methods of those controllers.
@@ -970,27 +1063,11 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
       let methodType = methods[j].type;
       let responses = {};
       let methodComment = methods[j].comment;
-      let returnTypedef;
-      let returnTypename;
 
       if(methods[j].decoratorArgs.length != 0) methodPath = methods[j].decoratorArgs[0];
 
       let methodPathDecomposition = decomposePath(methodPath);
       let p3 = decompositionToPath(methodPathDecomposition,"swagger");
-
-      if(methods[j].returnType != null) {
-        returnTypedef = typeToJSON(methods[j].returnType,null,{ docRoot:"#/components/schemas" });
-        returnTypename = tsany.getTextOfNode((<any>methods[j].returnType).typeName);
-      }
-      else console.log("void return from a function",p3);
-      
-      // If the method return type is a promise infer that this is an async function and
-      // instead use the subordinate type as the type defined by the swagger doc.
-      if(returnTypename == "Promise") {
-        let promiseArg = (<any>methods[j].returnType).typeArguments[0];
-
-        returnTypedef = typeToJSON(promiseArg,null,{ expandRefs:true, docRoot:"#/components/schemas" });
-      }
 
       // operationId is a unique identifier (across entire doc) for an operation
       let operationId = controllers[i].className + '-' + methods[j].decorates;
@@ -1000,8 +1077,7 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
       let pathParameters = genSwaggerPathParameters(router,controllers[i],methods[j],methodPathDecomposition);
 
       if(methodComment != null && methodComment != "") path.description = methodComment;
-      if(returnTypedef != null) responses["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
-      else responses["204"] = { description:"Successful response" };
+      genSwaggerReturn(methods[j].returnType,responses);
       if(methodType == "post" || methodType == "all" || methodType == "put" || methodType == "patch") {
         if(pathParameters.length != 0) path.parameters = pathParameters;
         path.requestBody = genSwaggerRequestBody(synthesizedTypes,router,controllers[i],methods[j],methodPathDecomposition);
