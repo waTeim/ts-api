@@ -556,7 +556,7 @@ function isExplicitStatus(typeName) {
  * traversal of the AST of the typescript sources.
  *
  */
-function symtabToSchemaDefinitions(): Object {
+function symtabToSchemaDefinitions(docRoot): Object {
   let res = {};
 
   for(let ikey in symtab) {
@@ -574,7 +574,7 @@ function symtabToSchemaDefinitions(): Object {
             }
           }
         }
-        else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:"#/components/schemas" });
+        else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:docRoot});
         if(required.length > 0) res[ikey].required = required;
         if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
         symtab[ikey].schema = res[ikey];
@@ -973,7 +973,12 @@ function explicitStatus(returnTypeDesc:any) {
 function statusReturnMerge(resX:any,statusCode:string,resN:any) {
   if(resX[statusCode] == null) resX[statusCode] = resN;
   else {
-    if(resX[statusCode].oneOf == null) resX[statusCode].oneOf = resX[statusCode];
+    if(resX[statusCode].oneOf == null) {
+      let tmp = resX[statusCode];
+
+      resX[statusCode] = { oneOf:[] };
+      resX[statusCode].oneOf.push(tmp);
+    }
     resX[statusCode].oneOf.push(resN);
   }
 }
@@ -1389,10 +1394,11 @@ function genSources(
     contents_part3 += genMethodEntry(x.className,x.method,x.parameterNames,x.schema);
   }
 
-  let definitions = symtabToSchemaDefinitions();
+  let definitions1 = symtabToSchemaDefinitions("#/definitions");
+  let definitions2 = symtabToSchemaDefinitions("#/components/schemas");
   let synthesizedTypes = {};
 
-  contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions,null,2)}\n`;
+  contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions1,null,2)}\n`;
 
   checkFile.write(contents_part1);
   checkFile.write(contents_part2);
@@ -1401,8 +1407,8 @@ function genSources(
   genSwaggerPreamble(swaggerDefinitions,packageName,routers[0],controllers);
   genSwaggerRootTags(swaggerDefinitions,routers[0],controllers);
   genSwaggerRoutes(swaggerDefinitions,synthesizedTypes,routers[0],controllers);
-  for(let synthesizedTypename in synthesizedTypes) definitions[synthesizedTypename] = synthesizedTypes[synthesizedTypename];
-  swaggerDefinitions.components = { schemas:definitions };
+  for(let synthesizedTypename in synthesizedTypes) definitions2[synthesizedTypename] = synthesizedTypes[synthesizedTypename];
+  swaggerDefinitions.components = { schemas:definitions2 };
   swaggerFile.write(`${JSON.stringify(swaggerDefinitions,null,2)}\n`);
 
   let swaggerPath = genExpressRoutes(items,routers[0],controllers,srcRoot,routesFile);
