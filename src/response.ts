@@ -26,7 +26,10 @@ function error(e:any,req:any,res:any,next:any) {
 function success(obj:any,req:any,res:any,next:any) {
   if(res._header == null) {
     if(obj == null) console.error("API return null result");
-    else res.send(obj);
+    else {
+      if(obj.statusCode != null && obj.body != null) res.status(obj.statusCode).send(obj.body);
+      else res.send(obj);
+    }
   } 
 }
 

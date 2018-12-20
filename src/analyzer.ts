@@ -116,7 +116,7 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
  * definitions.  Used to construct $ref values.
  * @param {string} name The name of the typescript type.
  */
-function maptypeDescName(docRoot: string,name: string): Object {
+function mapTypeDescName(docRoot: string,name: string): Object {
   if(name == "Object") return { type:"object" };
   if(name == "String") return { type:"string" };
   if(name == "Number") return { type:"number" };
@@ -343,7 +343,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
           res = { oneOf:[{ type:"string", format:"date" }, { type:"string", format:"date-time" }], toDate:true, content:"flat" };
         }
         else {
-          res =  maptypeDescName(docRoot,typeName);
+          res =  mapTypeDescName(docRoot,typeName);
           if(res != null && res['$ref'] != null && options && options.expandRefs) {
             if(symtab[typeName] == null) throw(`undefined type reference ${typeName}`);
             res = symtab[typeName].schema;
@@ -998,7 +998,18 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
       for(let statusCode in resX) res[statusCode] = resX[statusCode];
     }
     else {
-      if(returnTypeDesc.kind == ts.SyntaxKind.UnionType) {
+      let isUnion = returnTypeDesc.kind == ts.SyntaxKind.UnionType;
+
+      if(!isUnion && returnTypeDesc.kind == ts.SyntaxKind.TypeReference) {
+        let alias = symtab[returnTypename].decl;
+
+        if(alias.type) {
+          isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
+          if(isUnion) returnTypeDesc = alias.type;
+        }
+      }
+
+      if(isUnion) {
         let unionDesc = <ts.UnionTypeNode>returnTypeDesc;
         let resX = {};
         let isMultiStatus = false;
