@@ -177,7 +177,16 @@ function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 function literalToJSON(typeDesc:any,jsDoc:any):Object {
   let type = checker.getTypeFromTypeNode(typeDesc);
 
-  if(type.value != null) return { type:(typeof type.value), oneOf:[{ pattern:`^${type.value}$` }] };
+  if(type.value != null) {
+    let valueType = typeof type.value;
+
+    if(valueType == "string") return { type:"string", pattern:`^${type.value}$` };
+    else if(valueType == "number") {
+      let numericValue = parseFloat(type.value);
+
+      return { type:"number", minimum:numericValue, maximum:numericValue };
+    }
+  }
   
   let literal = checker.typeToString(type);
 
