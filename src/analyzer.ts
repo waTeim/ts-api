@@ -169,7 +169,7 @@ function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 
 /**
  * Create the JSON schema for a typescript literal type.  Literal types
- * can be expressed using the format keyword.
+ * can be expressed using the pattern keyword.
  *
  * @param {any} typeDesc The AST subtree describing the literal.
  * @param {any} jsDoc A reference to the current JSDoc document.
@@ -177,7 +177,7 @@ function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
 function literalToJSON(typeDesc:any,jsDoc:any):Object {
   let type = checker.getTypeFromTypeNode(typeDesc);
 
-  if(type.value != null) return { type:(typeof type.value), oneOf:[{ format:type.value }] };
+  if(type.value != null) return { type:(typeof type.value), oneOf:[{ pattern:`^${type.value}$` }] };
   
   let literal = checker.typeToString(type);
 
@@ -326,8 +326,10 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   if(typeDesc.constructor.name == 'NodeObject') {
     let unknown = false;
     let docRoot = "#/definitions";
+    let schemaId = "check";
 
     if(options != null && options.docRoot != null) docRoot = options.docRoot;
+    if(options != null && options.schemaId != null) schemaId = options.schemaId;
     switch(typeDesc.kind) {
       case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
       case ts.SyntaxKind.TypeReference: 
@@ -343,10 +345,10 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
           res = { oneOf:[{ type:"string", format:"date" }, { type:"string", format:"date-time" }], toDate:true, content:"flat" };
         }
         else {
-          res =  mapTypeDescName(docRoot,typeName);
+          res = mapTypeDescName(docRoot,typeName);
           if(res != null && res['$ref'] != null && options && options.expandRefs) {
             if(symtab[typeName] == null) throw(`undefined type reference ${typeName}`);
-            res = symtab[typeName].schema;
+            res = symtab[typeName].schema[schemaId];
           }
         }
       }
@@ -542,8 +544,34 @@ function connectMethods(endpoints:DecoratedFunction[]): void {
   }
 }
 
-function isMagic(typeName) {
-  return typeName == "Res" || typeName == "FileRef";
+function isMagic(typeDesc:any) {
+  if(typeDesc == null) return false;
+
+  let typeName = typeDesc.name.text;
+
+  if(typeName == "Res" || typeName == "FileRef") return true;
+
+  let isUnion = typeDesc.kind == ts.SyntaxKind.UnionType;
+
+  if(!isUnion && typeDesc.kind == ts.SyntaxKind.TypeAliasDeclaration) {
+    let alias = <ts.TypeAliasDeclaration>typeDesc;
+
+    if(alias.type) {
+      isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
+      if(isUnion) typeDesc = alias.type;
+    }
+  }
+  if(!isUnion) return false;
+
+  let unionDesc = <ts.UnionTypeNode>typeDesc;
+  let isMultiStatus = false;
+
+  for(let i = 0;i < unionDesc.types.length;i++) {
+    let unionElementTypename = getTypeName(unionDesc.types[i]);
+
+    if(unionElementTypename != null && isExplicitStatus(unionElementTypename)) return true;
+  }
+  return false;
 }
 
 function isExplicitStatus(typeName) {
@@ -556,7 +584,7 @@ function isExplicitStatus(typeName) {
  * traversal of the AST of the typescript sources.
  *
  */
-function symtabToSchemaDefinitions(docRoot): Object {
+function symtabToSchemaDefinitions(schemaId:string,docRoot:string): Object {
   let res = {};
 
   for(let ikey in symtab) {
@@ -564,20 +592,21 @@ function symtabToSchemaDefinitions(docRoot): Object {
       let required = [];
       let decl = symtab[ikey].decl;
 
-      if(!isMagic(ikey)) {
+      if(!isMagic(decl)) {
         if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
           if(ikey != "Res") {
             res[ikey] = { type:"object", properties:{} };
             for(let mkey in symtab[ikey].members) {
-              res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc;
+              res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc[schemaId];
               if(!symtab[ikey].members[mkey].optional) required.push(mkey);
             }
           }
         }
-        else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ docRoot:docRoot});
+        else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ schemaId:schemaId, docRoot:docRoot });
         if(required.length > 0) res[ikey].required = required;
         if(symtab[ikey].comment != null) res[ikey].description = symtab[ikey].comment;
-        symtab[ikey].schema = res[ikey];
+        if(symtab[ikey].schema == null) symtab[ikey].schema = {};
+        symtab[ikey].schema[schemaId] = res[ikey];
       }
     }
   }
@@ -837,7 +866,7 @@ function genSwaggerPathParameters(router:Router,controller:Controller,method:Dec
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
-    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
 
     if(parameterTypedef != null && parameterTypedef.type == "object") {
       for(let pname in parameterTypedef.properties) {
@@ -890,8 +919,8 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
-    let parameterTypedef:any = typeToJSON(parameter.type,null,{ docRoot:"#/components/schemas" });
-    let parameterTypedefEx:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+    let parameterTypedef:any = typeToJSON(parameter.type,null,{ schemaId:"swagger", docRoot:"#/components/schemas" });
+    let parameterTypedefEx:any = typeToJSON(parameter.type,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
 
     if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
       parameters.push({ name:parameter.id, required:parameterTypedef.required, schema:parameterTypedef });
@@ -899,8 +928,8 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     }
   }
   if(parameters.length == 1) {
-    let jsonContent = { schema:parameters[0].schema };
-    let formContent = { schema:parametersEx[0].schema };
+    let jsonContent = { schema:parameters[0].schema.swagger };
+    let formContent = { schema:parametersEx[0].schema.swagger };
     let encoding = {};
     let encodingPopulated = false;
 
@@ -963,7 +992,7 @@ function explicitStatus(returnTypeDesc:any) {
   let statusCodeDesc = (<any>returnTypeDesc).typeArguments[0];
   let statusCode = checker.getTypeFromTypeNode(statusCodeDesc).value;
   let resReturnType = (<any>returnTypeDesc).typeArguments[1];
-  let returnTypedef = typeToJSON(resReturnType,null,{ docRoot:"#/components/schemas" });
+  let returnTypedef = typeToJSON(resReturnType,null,{ schemaId:"swagger", docRoot:"#/components/schemas" });
 
   if(returnTypedef != null) res[statusCode] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
   else res["204"] = { description:"Successful response" };
@@ -1024,7 +1053,7 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
 
           if(unionElementTypename != null) {
             if(!isExplicitStatus(unionElementTypename)) {
-              let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, docRoot:"#/components/schemas" });
+              let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
 
               if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
             }
@@ -1035,7 +1064,7 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
             }
           }
           else {
-            let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, docRoot:"#/components/schemas" });
+            let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
 
             if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
           }
@@ -1043,7 +1072,7 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
         for(let statusCode in resX) res[statusCode] = resX[statusCode];
       }
       else {
-        returnTypedef = typeToJSON(returnTypeDesc,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+        returnTypedef = typeToJSON(returnTypeDesc,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
         if(returnTypedef != null) res["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
         else res["204"] = { description:"Successful response" };
       }
@@ -1289,7 +1318,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     // Gather parameter metadata prior to output
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
       let parm = endpoints[i].methodParameters[j];
-      let parmType = typeToJSON(parm.type,null,{ expandRefs:true, docRoot:"#/components/schemas" })
+      let parmType = typeToJSON(parm.type,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/definitions" })
 
       if(parm.decorators != null) {
         for(let decoratorName in parm.decorators) {
@@ -1318,17 +1347,21 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   }
 
   let docPath = '/docs';
-  let swaggerPath = '/docs/swagger.json';
+  let redocPath = '/redoc';
+  let staticPath = '/doc-static';
+  let swaggerPath = '/doc-static/swagger.json';
 
   if(routerPath != "") {
     docPath = `/${routerPath}${docPath}`;
+    redocPath = `/${routerPath}${redocPath}`;
+    staticPath = `/${routerPath}${staticPath}`;
     swaggerPath = `/${routerPath}${swaggerPath}`;
   }
-  output += `  root.getExpressRouter().use('${docPath}/swagger-ui',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
-  output += `  root.getExpressRouter().get('${docPath}',function(req,res,next) {\n `;
+  output += `  root.getExpressRouter().use('${docPath}',swaggerUi.serve,swaggerUi.setup(swaggerDocument));\n`;
+  output += `  root.getExpressRouter().get('${redocPath}',function(req,res,next) {\n `;
   output += `    res.sendFile(__dirname + '/docs/redoc.html');\n`;
   output += `  });\n`;
-  output += `  root.getExpressRouter().use('${docPath}',express.static(__dirname + '/docs'));\n`;
+  output += `  root.getExpressRouter().use('${staticPath}',express.static(__dirname + '/docs'));\n`;
   output += `  return root.getExpressRouter();\n`;
   output += `}\n`;
 
@@ -1394,8 +1427,8 @@ function genSources(
     contents_part3 += genMethodEntry(x.className,x.method,x.parameterNames,x.schema);
   }
 
-  let definitions1 = symtabToSchemaDefinitions("#/definitions");
-  let definitions2 = symtabToSchemaDefinitions("#/components/schemas");
+  let definitions1 = symtabToSchemaDefinitions("check","#/definitions");
+  let definitions2 = symtabToSchemaDefinitions("swagger","#/components/schemas");
   let synthesizedTypes = {};
 
   contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions1,null,2)}\n`;
@@ -1686,11 +1719,12 @@ function generate(
              }
 
              // Create and save the JSON schema definition for a property for later use
-             let desc = typeToJSON(sig.type,jsDoc,{ docRoot:"#/components/schemas" });
+             let checkDesc = typeToJSON(sig.type,jsDoc,{ schemaId:"check", docRoot:"#/definitions" });
+             let swaggerDesc = typeToJSON(sig.type,jsDoc,{ schemaId:"swagger", docRoot:"#/components/schemas" });
 
              // Likewise save the comment
-             if(desc) {
-               symtab[parentName].members[propertyName] = { desc:desc, type:sig.type, optional:optional };
+             if(checkDesc != null && swaggerDesc != null) {
+               symtab[parentName].members[propertyName] = { desc:{ check:checkDesc, swagger:swaggerDesc }, type:sig.type, optional:optional };
              }
            }
          }
