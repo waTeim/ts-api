@@ -937,8 +937,8 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     }
   }
   if(parameters.length == 1) {
-    let jsonContent = { schema:parameters[0].schema.swagger };
-    let formContent = { schema:parametersEx[0].schema.swagger };
+    let jsonContent = { schema:parameters[0].schema };
+    let formContent = { schema:parametersEx[0].schema };
     let encoding = {};
     let encodingPopulated = false;
 
