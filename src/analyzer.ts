@@ -95,7 +95,7 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     }
     break;
     case ts.SyntaxKind.BooleanKeyword: res =  { type:"boolean" }; break;
-    case ts.SyntaxKind.AnyKeyword: res = { oneOf:[ { type:"object" }, { type:"number" }, { type:"string" }]}; break;
+    case ts.SyntaxKind.AnyKeyword: res = { anyOf:[ { type:"object" }, { type:"number" }, { type:"string" }]}; break;
     case ts.SyntaxKind.NullKeyword: res = { type:"null" }; break;
     case ts.SyntaxKind.UndefinedKeyword: break;
     case ts.SyntaxKind.SymbolKeyword: break;
@@ -127,7 +127,7 @@ function mapTypeDescName(docRoot: string,name: string): Object {
 
 /**
  * Convert a typescript union declaration to JSON schema; this is supported
- * by use of the keyword oneOf.
+ * by use of the keyword anyOf.
  * 
  * @param {any} typeDesc The AST subtree describing the union type.
  * @param {any} jsDoc A reference to the current JSDoc document.
@@ -136,12 +136,12 @@ function mapTypeDescName(docRoot: string,name: string): Object {
  */
 function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
    let unionDesc = <ts.UnionTypeNode>typeDesc;
-   let res = { oneOf:[] };
+   let res = { anyOf:[] };
 
    for(let i = 0;i < unionDesc.types.length;i++) {
      let unionElement = typeToJSON(unionDesc.types[i],null,options);
 
-     if(unionElement != null) res.oneOf.push(unionElement);
+     if(unionElement != null) res.anyOf.push(unionElement);
    }
    return res;
 }
@@ -196,15 +196,34 @@ function literalToJSON(typeDesc:any,jsDoc:any):Object {
 }
 
 function typeliteralToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
-   let typeliteralDesc = <ts.TypeLiteralNode>typeDesc;
-   let res = { oneOf:[] };
+  let typeliteralDesc = <ts.TypeLiteralNode>typeDesc;
+  let properties = {};
+  let required = [];
+  let elements = [];
 
-   for(let i = 0;i < typeliteralDesc.members.length;i++) {
-     let typeliteralMember = typeToJSON(typeliteralDesc.members[i],null,options);
+  for(let i = 0;i < typeliteralDesc.members.length;i++) {
+    let element = <ts.TypeElement>typeliteralDesc.members[i];
+    
+    if(element.name != null) {
+      let propertyName = tsany.getTextOfNode(element.name);
 
-     if(typeliteralMember != null) res.oneOf.push(typeliteralMember);
-   }
-   return res;
+      properties[propertyName] = typeToJSON(element,null,options);
+      if(element.questionToken == null) required.push(propertyName);
+    }
+    else elements.push(typeToJSON(element,null,options));
+  }
+  if(Object.keys(properties).length > 0 && elements.length == 0) {
+    return { type:"object", properties:properties, required:required };
+  }
+  else if(elements.length != 0 && Object.keys(properties).length == 0) {
+    return { anyOf:elements };
+  }
+  else {
+    let type = checker.getTypeFromTypeNode(typeDesc);
+    let literal = checker.typeToString(type);
+
+    throw(`unable to map typeliteral containing both named and unnamed elements ${literal}`);
+  }
 }
 
 function tupleTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
