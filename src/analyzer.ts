@@ -606,6 +606,10 @@ function isExplicitStatus(typeName) {
   return typeName == "Res";
 }
 
+function isFileReturn(typeName) {
+  return typeName == "FileRef";
+}
+
 /**
  * This function creates the JSON schema reference document that corresponds to
  * all marked (relevant) types defined in the global symbol table created from the 
@@ -622,12 +626,10 @@ function symtabToSchemaDefinitions(schemaId:string,docRoot:string): Object {
 
       if(!isMagic(decl)) {
         if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
-          if(ikey != "Res") {
-            res[ikey] = { type:"object", properties:{} };
-            for(let mkey in symtab[ikey].members) {
-              res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc[schemaId];
-              if(!symtab[ikey].members[mkey].optional) required.push(mkey);
-            }
+          res[ikey] = { type:"object", properties:{} };
+          for(let mkey in symtab[ikey].members) {
+            res[ikey].properties[mkey] = symtab[ikey].members[mkey].desc[schemaId];
+            if(!symtab[ikey].members[mkey].optional) required.push(mkey);
           }
         }
         else if(decl.type != null) res[ikey] = typeToJSON(decl.type,symtab[ikey].jsDoc,{ schemaId:schemaId, docRoot:docRoot });
@@ -1013,6 +1015,30 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
   }
   else return { content:{} };
 }
+function returnAtom(typeDesc:any) {
+  let typeName = getTypeName(typeDesc);
+  let contentType = "application/json";
+  let res = {};
+  let schema;
+
+  if(typeName == "FileRef") {
+    let args = (<any>typeDesc).typeArguments;
+
+    if(args != null) {
+      contentType = tsany.getTextOfNode(args[0]);
+      contentType = contentType.replace(/^"(.*)"$/, '$1');
+    }
+    else contentType = "application/octet-stream";
+    schema = { type:"string", format:"binary" };
+  }
+  else {
+    schema = typeToJSON(typeDesc,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
+  }
+
+  res[contentType] = schema;
+  return res;
+}
+
 
 function explicitStatus(returnTypeDesc:any) {
   let res = {};
@@ -1020,30 +1046,38 @@ function explicitStatus(returnTypeDesc:any) {
   let statusCodeDesc = (<any>returnTypeDesc).typeArguments[0];
   let statusCode = checker.getTypeFromTypeNode(statusCodeDesc).value;
   let resReturnType = (<any>returnTypeDesc).typeArguments[1];
-  let returnTypedef = typeToJSON(resReturnType,null,{ schemaId:"swagger", docRoot:"#/components/schemas" });
+  let content = returnAtom(resReturnType);
 
-  if(returnTypedef != null) res[statusCode] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
+  if(content != null) res[statusCode] = { description:"Successful response", content:content };
   else res["204"] = { description:"Successful response" };
   return res;
 }
 
-function statusReturnMerge(resX:any,statusCode:string,resN:any) {
-  if(resX[statusCode] == null) resX[statusCode] = resN;
-  else {
-    if(resX[statusCode].oneOf == null) {
-      let tmp = resX[statusCode];
+function returnMerge(resN:any,resX:any) {
+  for(let statusCode in resN) {
+    if(resX[statusCode] == null) resX[statusCode] = resN[statusCode];
+    else {
+      for(let contentType in resN[statusCode].content) {
 
-      resX[statusCode] = { oneOf:[] };
-      resX[statusCode].oneOf.push(tmp);
+        if(resX[statusCode].content[contentType] == null) resX[statusCode].content[contentType] = resN[statusCode].content[contentType];
+        else if(contentType == "application/json") {
+          if(resX[statusCode].content[contentType].oneOf == null) {
+            let tmp = resX[statusCode].content[contentType];
+
+            resX[statusCode].content[contentType] = { oneOf:[] };
+            resX[statusCode].content.oneOf.push(tmp);
+          }
+          resX[statusCode].content.oneOf.push(resN);
+        }
+        else throw("unable to combine non-hierarchial content types with oneOf");
+      }
     }
-    resX[statusCode].oneOf.push(resN);
   }
 }
 
 function genSwaggerReturn(returnTypeDesc:any,res:any) {
   if(returnTypeDesc == null) return null;
 
-  let returnTypedef = typeToJSON(returnTypeDesc,null,{ docRoot:"#/components/schemas" });
   let returnTypename = getTypeName(returnTypeDesc);
 
   // If the method return type is a promise infer that this is an async function and
@@ -1081,27 +1115,39 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
 
           if(unionElementTypename != null) {
             if(!isExplicitStatus(unionElementTypename)) {
-              let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
+              let swaggerDef = returnAtom(unionDesc.types[i]);
 
-              if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
+              if(swaggerDef != null) {
+                let resY = {};
+
+                resY["200"] = swaggerDef;
+                returnMerge(resY,resX);
+              }
             }
             else {
-              let resY:any = explicitStatus(unionDesc.types[i]);
+              let resY = explicitStatus(unionDesc.types[i]);
 
-              for(let statusCode in resY) statusReturnMerge(resX,statusCode,resY[statusCode]);
+              returnMerge(resY,resX);
             }
           }
           else {
-            let unionElement = typeToJSON(unionDesc.types[i],null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
+            let swaggerDef = returnAtom(unionDesc.types[i]);
 
-            if(unionElement != null) statusReturnMerge(resX,"200",unionElement);
+            if(swaggerDef != null) {
+              let resY = {};
+
+              resY["200"] = swaggerDef;
+              returnMerge(resY,resX);
+            }
           }
         }
         for(let statusCode in resX) res[statusCode] = resX[statusCode];
       }
       else {
-        returnTypedef = typeToJSON(returnTypeDesc,null,{ expandRefs:true, schemaId:"swagger", docRoot:"#/components/schemas" });
-        if(returnTypedef != null) res["200"] = { description:"Successful response", content:{ "application/json":{ schema:returnTypedef }}};
+        let content = returnAtom(returnTypeDesc);
+
+        if(content != null)
+          res["200"] = { description:"Successful response", content:content };
         else res["204"] = { description:"Successful response" };
       }
     }

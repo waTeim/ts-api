@@ -1,4 +1,5 @@
 const uuidv1 = require('uuid/v1');
+const path = require('path');
 
 /**
  * General REST processing in case of an error 
@@ -27,8 +28,19 @@ function success(obj:any,req:any,res:any,next:any) {
   if(res._header == null) {
     if(obj == null) console.error("API return null result");
     else {
-      if(obj.statusCode != null && obj.body != null) res.status(obj.statusCode).send(obj.body);
-      else res.send(obj);
+      if(obj.statusCode != null) res.status(obj.statusCode);
+      if(obj.filename != null) {
+        let resolvedPath = path.resolve(obj.filename);
+
+        if(obj.displayName == null)
+          res.download(resolvedPath,obj.displayName,function(err) { if(err != null) next(err); });
+        else  
+          res.download(resolvedPath,function(err) { if(err != null) next(err); });
+      }
+      else {
+        if(obj.body != null) res.send(obj.body);
+        else res.send(obj);
+      }
     }
   } 
 }

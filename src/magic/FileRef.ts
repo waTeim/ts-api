@@ -1,4 +1,5 @@
-export interface FileRef {
-  filename:string,
-  displayName:string
+export type FileRef<m extends string>  = {
+  filename?:string,
+  displayName?:string,
+  mimeType?:m
 };
