@@ -13,6 +13,7 @@ const tsany = ts as any;
 interface TypedId {
   id: string,
   type: Object,
+  required: boolean,
   decorators: any[]
 };
 
@@ -611,6 +612,7 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
 function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
   let props = {};
   let parameterNames = [];
+  let required = [];
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let jsonValue = typeToJSON(method.methodParameters[i].type,null,options);;
@@ -621,11 +623,17 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
     }
   }
   markAsRelevant(method.returnType,null,options);
-  for(let i = 0;i < method.methodParameters.length;i++) parameterNames[i] = method.methodParameters[i].id;
+  for(let i = 0;i < method.methodParameters.length;i++) {
+    let parameterName = method.methodParameters[i].id;
+
+    parameterNames.push(parameterName);
+    if(method.methodParameters[i].required) required.push(parameterName);
+  }
   return {
     classRef: `${method.classRef}`,
     method: `${method.name}`,
-    parameterNames:parameterNames,
+    parameterNames: parameterNames,
+    required: required,
     schema: {
       //"$schema": "http://json-schema.org/draft-07/schema#",
       title: `${method.name} plist`,
@@ -646,7 +654,10 @@ function traverseParameterList(parms: any,decoratorMeta:any): TypedId[] {
   let parameterList:TypedId[] = [];
 
   for(let i = 0;i < parms.length;i++) {
-    parameterList.push(<TypedId>{ id:parms[i].name.text, type:parms[i].type, decorators:decoratorMeta[parms[i].name.text]});
+    let required = true;
+
+    if(parms[i].questionToken != null) required = false;
+    parameterList.push(<TypedId>{ id:parms[i].name.text, type:parms[i].type, decorators:decoratorMeta[parms[i].name.text], required:required });
   }
   return parameterList;
 }
@@ -1334,30 +1345,75 @@ function genSwaggerRoutes(def:any,synthesizedTypes:any,router:Router,controllers
   genSwaggerPaths(def,synthesizedTypes,router,controllers);
 }
 
-function genAssignment(id:string,dataSource:string,kind:string,type:string,content:string) {
+function genAssignment1(id:string,dataSource:string,kind:string,type:string,content:string) {
   if(kind == "urlParam") {
     if(content != "flat" && (type == "object" || type == null))
       return `      const ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
-    else if(type == "array") 
-      return `      const ${id} = Array.isArray(req.params.${id})?req.params.${id}):[req.params.${id}];\n`;
     else
       return `      const ${id} = req.params.${id};\n`;
   }
   else {
     if(content != "flat" && (type == "object" || type == null))
       return `      const ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
-    else if(type == "array") 
-      return `      const ${id} = Array.isArray(req.${dataSource}.${id})?req.${dataSource}.${id}:[req.${dataSource}.${id}];\n`;
     else
       return `      const ${id} = req.${dataSource}.${id};\n`;
   }
 }
 
-function genControllerArgListA(dataSource:string,params:any[],endpointName:string): string {
+function genAssignment2(id:string,dataSource:string,kind:string,type:string,content:string) {
+  let output = "";
+
+  if(type == "array") {
+    output += `      if(${id} != null) {\n`;
+    output += `        if(!Array.isArray(${id})) ${id} = [${id}];\n`;
+    output += `      }\n`;
+  }
+  return output;
+}
+
+function genControllerArgAssignmentsA(dataSource:string,params:any[],endpointName:string,genFunc:Function): string {
   let output = "";
 
   for(let i = 0;i < params.length;i++)
-    output += genAssignment(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+    output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+  return output;
+}
+
+function genControllerArgAssignmentsB(dataSource:string,params:any[],endpointName:string,genFunc:Function,argListFormal:Array<any>): string {
+  let output = "";
+
+  for(let i = 0;i < params.length;i++) {
+    if(params[i].kind == "urlParam") {
+      output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+      if(argListFormal != null) argListFormal.push(params[i].id);
+    }
+    else {
+      if(params[i].type.type == "object") {
+        let properties = params[i].type.properties;
+        let objArgs = [];
+
+        for(let propertyName in properties) {
+          output += genFunc(propertyName,dataSource,"regular",properties[propertyName].type,properties[propertyName].content);
+          objArgs.push(propertyName);
+        }
+        if(argListFormal != null) argListFormal.push(objArgs);
+      }
+      else {
+        output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+        if(argListFormal != null) argListFormal.push(params[i].id);
+      }
+    }
+  }
+  return output;
+}
+
+function genControllerArgListA(dataSource:string,params:any[],endpointName:string): string {
+  let output = "";
+  let assignments1 = genControllerArgAssignmentsA(dataSource,params,endpointName,genAssignment1);
+  let assignments2 = genControllerArgAssignmentsA(dataSource,params,endpointName,genAssignment2);
+
+  if(assignments1 != "") output += `${assignments1}`;
+  if(assignments2 != "") output += `\n${assignments2}\n`;
   output += `      const _x = await controller.${endpointName}(`;
   for(let i = 0;i < params.length;i++) {
     if(i != 0) output += ',';
@@ -1370,29 +1426,11 @@ function genControllerArgListA(dataSource:string,params:any[],endpointName:strin
 function genControllerArgListB(dataSource:string,params:any[],endpointName:string): string {
   let output = "";
   let argListFormal = [];
+  let assignments1 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment1,argListFormal);
+  let assignments2 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment2,argListFormal);
 
-  for(let i = 0;i < params.length;i++) {
-    if(params[i].kind == "urlParam") {
-      output += genAssignment(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
-      argListFormal.push(params[i].id);
-    }
-    else {
-      if(params[i].type.type == "object") {
-        let properties = params[i].type.properties;
-        let objArgs = [];
-
-        for(let propertyName in properties) {
-          output += genAssignment(propertyName,dataSource,"regular",properties[propertyName].type,properties[propertyName].content);
-          objArgs.push(propertyName);
-        }
-        argListFormal.push(objArgs);
-      }
-      else {
-        output += genAssignment(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
-        argListFormal.push(params[i].id);
-      }
-    }
-  }
+  if(assignments1 != "") output += `${assignments1}`;
+  if(assignments2 != "") output += `\n${assignments2}\n`;
   output += `      const _x = await controller.${endpointName}(`;
   for(let i = 0;i < argListFormal.length;i++) {
     if(i != 0) output += ',';
@@ -1607,7 +1645,7 @@ function genSources(
   for(let i = 0;i < items.length;i++) {
     let x = <any>parameterListToJSON(items[i]);
 
-    if(x.parameterNames) x.schema.required = x.parameterNames;
+    if(x.parameterNames) x.schema.required = x.required;
     contents_part3 += genMethodEntry(x.classRef,x.method,x.parameterNames,x.schema);
   }
 
