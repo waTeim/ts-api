@@ -32,9 +32,9 @@ function success(obj:any,req:any,res:any,next:any) {
       if(obj.filename != null) {
         let resolvedPath = path.resolve(obj.filename);
 
-        if(obj.displayName == null)
+        if(obj.displayName != null)
           res.download(resolvedPath,obj.displayName,function(err) { if(err != null) next(err); });
-        else  
+        else
           res.download(resolvedPath,function(err) { if(err != null) next(err); });
       }
       else {
