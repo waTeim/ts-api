@@ -12,11 +12,11 @@
     "@types/node": "^8.10.0",
     "@types/swagger-ui-express": "^3.0.0",
     "ajv": "^6.3.0",
-    "bluebird": "x",
+    "bluebird": "^3.5.1",
     "commander": "^2.15.1",
-    "doctrine": "x",
+    "doctrine": "^2.1.0",
     "express": "^4.16.3",
-    "find-root": "x",
+    "find-root": "^1.1.0",
     "glob": "^7.1.2",
     "mkdirp": "^0.5.1",
     "reflect-metadata": "^0.1.12",
@@ -32,7 +32,7 @@
     "cg": "./bin/cg"
   },
   "author": "Jeff Waller",
-  "license": "ISC",
+  "license": "Apache 2.0",
   "devDependencies": {
     "chai": "^4.2.0",
     "mocha": "^5.2.0"
