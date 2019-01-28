@@ -750,6 +750,20 @@ function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string): Objec
             res[schemaRefId].properties[mkey] = sentry.members[mkey].desc[schemaNamespace];
             if(!sentry.members[mkey].optional) required.push(mkey);
           }
+          if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
+            let classDecl = <ts.ClassDeclaration>decl;
+
+            if(classDecl.heritageClauses != null) {
+              ts.visitNodes(classDecl.heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> {  
+                //console.log(Object.keys(n.parent));
+                let index = getIndex((<any>n.parent).symbol);
+                let x = symtabGet(index);
+                //console.log("childB!",x.members);
+                
+                return n;
+              });
+            }
+          } 
         }
         else if(decl.type != null) res[schemaRefId] = typeToJSON(decl.type,sentry.jsDoc,{ schemaNamespace:schemaNamespace, docRoot:docRoot });
         if(required.length > 0) res[schemaRefId].required = required;
@@ -1348,15 +1362,15 @@ function genSwaggerRoutes(def:any,synthesizedTypes:any,router:Router,controllers
 function genAssignment1(id:string,dataSource:string,kind:string,type:string,content:string) {
   if(kind == "urlParam") {
     if(content != "flat" && (type == "object" || type == null))
-      return `      const ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
+      return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
     else
-      return `      const ${id} = req.params.${id};\n`;
+      return `      let ${id} = req.params.${id};\n`;
   }
   else {
     if(content != "flat" && (type == "object" || type == null))
-      return `      const ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+      return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
     else
-      return `      const ${id} = req.${dataSource}.${id};\n`;
+      return `      let ${id} = req.${dataSource}.${id};\n`;
   }
 }
 
@@ -2015,7 +2029,16 @@ function generate(
         symtabPut(index,{ kind:"type", decl:node, members:{}, jsDoc:null, comment:comment });
       }
       else if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
+        let classDecl = <ts.ClassDeclaration>decl;
+
         ts.forEachChild(decl,visit);
+        if(classDecl.heritageClauses != null) {
+          ts.visitNodes(classDecl.heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> { 
+            //console.log("childA!");
+            visit(n); 
+            return n;
+          });
+        }
         symtabPut(index,{ kind:"type", decl:node, members:{}, jsDoc:null, comment:comment });
       }
       else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
