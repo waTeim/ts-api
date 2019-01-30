@@ -1359,23 +1359,42 @@ function genSwaggerRoutes(def:any,synthesizedTypes:any,router:Router,controllers
   genSwaggerPaths(def,synthesizedTypes,router,controllers);
 }
 
-function genAssignment1(id:string,dataSource:string,kind:string,type:string,content:string) {
-  if(kind == "urlParam") {
-    if(content != "flat" && (type == "object" || type == null))
-      return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
-    else
-      return `      let ${id} = req.params.${id};\n`;
+function genAssignment1(id:string,dataSource:string,kind:string,typeSpec:any,content:string) {
+  let type = typeSpec.type;
+
+  if(content != "flat" && (type == "object" || type == null || type == "array")) {
+    if(type == "array") {
+      if(typeSpec.items.type == "object") {
+        if(kind == "urlParam")
+          return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
+        else
+          return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+      }
+      else {
+        if(kind == "urlParam")
+          return `      let ${id} = req.params.${id};\n`;
+        else
+          return `      let ${id} = req.${dataSource}.${id};\n`;
+      }
+    }
+    else {
+      if(kind == "urlParam")
+        return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
+      else
+        return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+    }
   }
   else {
-    if(content != "flat" && (type == "object" || type == null))
-      return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+    if(kind == "urlParam")
+      return `      let ${id} = req.params.${id};\n`;
     else
       return `      let ${id} = req.${dataSource}.${id};\n`;
   }
 }
 
-function genAssignment2(id:string,dataSource:string,kind:string,type:string,content:string) {
+function genAssignment2(id:string,dataSource:string,kind:string,typeSpec:any,content:string) {
   let output = "";
+  let type = typeSpec.type;
 
   if(type == "array") {
     output += `      if(${id} != null) {\n`;
@@ -1389,7 +1408,7 @@ function genControllerArgAssignmentsA(dataSource:string,params:any[],endpointNam
   let output = "";
 
   for(let i = 0;i < params.length;i++)
-    output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+    output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type,params[i].type.content);
   return output;
 }
 
@@ -1398,7 +1417,7 @@ function genControllerArgAssignmentsB(dataSource:string,params:any[],endpointNam
 
   for(let i = 0;i < params.length;i++) {
     if(params[i].kind == "urlParam") {
-      output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+      output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type,params[i].type.content);
       if(argListFormal != null) argListFormal.push(params[i].id);
     }
     else {
@@ -1407,13 +1426,13 @@ function genControllerArgAssignmentsB(dataSource:string,params:any[],endpointNam
         let objArgs = [];
 
         for(let propertyName in properties) {
-          output += genFunc(propertyName,dataSource,"regular",properties[propertyName].type,properties[propertyName].content);
+          output += genFunc(propertyName,dataSource,"regular",properties[propertyName],properties[propertyName].content);
           objArgs.push(propertyName);
         }
         if(argListFormal != null) argListFormal.push(objArgs);
       }
       else {
-        output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type.type,params[i].type.content);
+        output += genFunc(params[i].id,dataSource,params[i].kind,params[i].type,params[i].type.content);
         if(argListFormal != null) argListFormal.push(params[i].id);
       }
     }
@@ -1441,7 +1460,7 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
   let output = "";
   let argListFormal = [];
   let assignments1 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment1,argListFormal);
-  let assignments2 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment2,argListFormal);
+  let assignments2 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment2,null);
 
   if(assignments1 != "") output += `${assignments1}`;
   if(assignments2 != "") output += `\n${assignments2}\n`;
