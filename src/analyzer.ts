@@ -586,6 +586,13 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
           markAsRelevant(ref.members[key].type,jsDoc,options);
         }
         if(ref.decl != null && ref.decl.type != null) markAsRelevant(ref.decl.type,jsDoc,options);
+        if(ref.inherits != null) {
+          for(let i = 0;i < ref.inherits.length;i++) {
+            let baseEntry = symtabGet(ref.inherits[i]);
+
+            markAsRelevant(baseEntry.typeDesc,baseEntry.jsDoc,baseEntry.options);
+          }
+        }
       }
       break;
       case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc,options); break;
@@ -743,6 +750,7 @@ function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string): Objec
 
       if(!isMagic(decl)) {
         let schemaRefId = sentry.schemaRefId;
+        let allOf;
  
         if(decl.kind == ts.SyntaxKind.InterfaceDeclaration || decl.kind == ts.SyntaxKind.ClassDeclaration) {
           res[schemaRefId] = { type:"object", properties:{} };
@@ -750,18 +758,13 @@ function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string): Objec
             res[schemaRefId].properties[mkey] = sentry.members[mkey].desc[schemaNamespace];
             if(!sentry.members[mkey].optional) required.push(mkey);
           }
-          if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
-            let classDecl = <ts.ClassDeclaration>decl;
+          if(sentry.inherits != null && sentry.inherits.length > 0) {
+            allOf = [];
+            for(let i = 0;i < sentry.inherits.length;i++) {
+              let hindex = sentry.inherits[i];
+              let hentry = symtabGet(hindex);
 
-            if(classDecl.heritageClauses != null) {
-              ts.visitNodes(classDecl.heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> {  
-                //console.log(Object.keys(n.parent));
-                let index = getIndex((<any>n.parent).symbol);
-                let x = symtabGet(index);
-                //console.log("childB!",x.members);
-                
-                return n;
-              });
+              allOf.push(mapTypeDescName(docRoot,hentry.schemaRefId));
             }
           } 
         }
@@ -769,6 +772,10 @@ function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string): Objec
         if(required.length > 0) res[schemaRefId].required = required;
         if(sentry.comment != null) res[schemaRefId].description = sentry.comment;
         if(sentry.schema == null) sentry.schema = {};
+        if(allOf != null) {
+          allOf.push(res[schemaRefId]);
+          res[schemaRefId] = { allOf:allOf };
+        }
         sentry.schema[schemaNamespace] = res[schemaRefId];
       }
     }
@@ -1942,68 +1949,88 @@ function generate(
     }
   }
 
-  // Analyze the contents of a an interface declaration collect typing information
+  function saveObjectProperty(parentIndex:any,name:ts.PropertyName,typeDesc:ts.TypeNode,optional:boolean) {
+    let symbol = checker.getSymbolAtLocation(name);
+    let propertyName = tsany.getTextOfNode(name);
+
+    if(propertyName != null && typeDesc != null) {
+      let jsDoc = [];
+      let tags = symbol.getJsDocTags();
+      let comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
+
+      if(tags.length != 0) {
+        let tagSrc = ["/**"," *"];
+
+        for(let i = 0;i < tags.length;i++) {
+          if(tags[i].name == "integer") tagSrc.push(" * @type {integer}");
+          else tagSrc.push(` * @${tags[i].name } ${tags[i].text}`);
+        }
+        tagSrc.push(" */");
+        try {
+          //checkFile.write(tagSrc.join('\n'));
+          jsDoc.push(doctrine.parse(tagSrc.join('\n'),{ unwrap:true }));
+        }
+        catch(e) { throw("invalid JSDoc: " + e); }
+      }
+
+      // Create and save the JSON schema definition for a property for later use
+      // Save the args to invoke the call later.  This is necessary due to out
+      // of order definitions of child member types.
+
+      defComp.push({
+        sentry:symtabGet(parentIndex),
+        propertyName:propertyName,
+        type:typeDesc,
+        jsDoc:jsDoc,
+        check:{ schemaNamespace:"check", docRoot:"#/definitions" },
+        swagger:{ schemaNamespace:"swagger", docRoot:"#/components/schemas" },
+        optional:optional
+      });
+    }
+  }
+
+
+  // Analyze the contents of a an interface or class declaration collect typing information
   // and JSDoc style comments.
   function visit2(node: ts.Node) {
     let parent = node.parent;
-    const intf = <ts.InterfaceDeclaration>parent;
-    const x = intf.name;
+    let x;
+
+    if(parent.kind == ts.SyntaxKind.InterfaceDeclaration) x = (<ts.InterfaceDeclaration>parent).name;
+    else if(parent.kind == ts.SyntaxKind.ClassDeclaration) x = (<ts.ClassDeclaration>parent).name;
 
     if(x != null) {
       let parentSymbol = checker.getSymbolAtLocation(x);
       let index = getIndex(parentSymbol);
-
+      
       switch(node.kind) {
         case ts.SyntaxKind.PropertySignature:
         {
+          // This will be the property node type if the parent is an interface
+
           let sig = <ts.PropertySignature>node;
           let name = <any>sig.name;
-          let propertyName;
-          let symbol = checker.getSymbolAtLocation(name);
+          let optional = (sig.questionToken != null);
 
-          if(name.text) propertyName = name.text;
-          if(propertyName && sig.type) {
-            let jsDoc = [];
-            let tags = symbol.getJsDocTags();
-            let comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
-            let optional = sig.questionToken;
+          saveObjectProperty(index,name,sig.type,optional);
+        }
+        break;
+        case ts.SyntaxKind.PropertyDeclaration:
+        {
+          // This will be the property node type if the parent is a class
 
-            if(tags.length != 0) {
-              let tagSrc = ["/**"," *"];
+          let pdecl = <ts.PropertyDeclaration>node;
+          let name = <any>pdecl.name;
+          let optional = (pdecl.questionToken != null);
 
-              for(let i = 0;i < tags.length;i++) {
-                if(tags[i].name == "integer") tagSrc.push(" * @type {integer}");
-                else tagSrc.push(` * @${tags[i].name } ${tags[i].text}`);
-              }
-              tagSrc.push(" */");
-              try {
-                //checkFile.write(tagSrc.join('\n'));
-                jsDoc.push(doctrine.parse(tagSrc.join('\n'),{ unwrap:true }));
-              } 
-              catch(e) { throw("invalid JSDoc: " + e); }
-            }
-
-            // Create and save the JSON schema definition for a property for later use
-            // Save the args to invoke the call later.  This is necessary due to out
-            // of order definitions of child member types.
-
-            defComp.push({
-              sentry:symtabGet(index),
-              propertyName:propertyName,
-              type:sig.type,
-              jsDoc:jsDoc,
-              check:{ schemaNamespace:"check", docRoot:"#/definitions" },
-              swagger:{ schemaNamespace:"swagger", docRoot:"#/components/schemas" },
-              optional:optional
-            });
-          }
+          saveObjectProperty(index,name,pdecl.type,optional);
         }
         break;
       }
     }
   }
 
-  function saveDefs() {
+  function compileProperties() {
     for(let i = 0;i < defComp.length;i++) {
       let checkDef = typeToJSON(defComp[i].type,defComp[i].jsDoc,defComp[i].check);
       let swaggerDef = typeToJSON(defComp[i].type,defComp[i].jsDoc,defComp[i].swagger);
@@ -2029,41 +2056,66 @@ function generate(
     else if(tsany.isDeclaration(node)) {
       let decl:ts.DeclarationStatement = <ts.DeclarationStatement>node;
       let name = decl.name;
+      let type;
       let symbol;    
       let comment;
       let index;
+      let typeDesc;
 
       if(name != null) {
         symbol = checker.getSymbolAtLocation(name);
         comment = ts.displayPartsToString(symbol.getDocumentationComment(checker));
+        index = getIndex(symbol);
 
         let type = checker.getDeclaredTypeOfSymbol(symbol);
 
-        index = getIndex(symbol);
+        typeDesc = checker.typeToTypeNode(type,node,ts.NodeBuilderFlags.IgnoreErrors|ts.NodeBuilderFlags.WriteTypeParametersInQualifiedName);
       }
       if(decl.kind == ts.SyntaxKind.TypeAliasDeclaration) {
         let alias = <ts.TypeAliasDeclaration>decl;
 
         ts.forEachChild(decl,visit);
-        symtabPut(index,{ kind:"type", decl:node, members:{}, jsDoc:null, comment:comment });
+        symtabPut(index,{ kind:"type", decl:node, typeDesc:typeDesc, members:{}, jsDoc:null, comment:comment });
       }
       else if(decl.kind == ts.SyntaxKind.ClassDeclaration) {
         let classDecl = <ts.ClassDeclaration>decl;
+        let tags = ts.displayPartsToString(symbol.getJsDocTags());
+        let sentry = symtabPut(index,{ kind:"type", decl:node, typeDesc:typeDesc, members:{}, inherits:[], jsDoc:null, comment:comment });
 
-        ts.forEachChild(decl,visit);
+        if(tags != "") sentry.jsDoc = doctrine.parse(tags);
+        ts.forEachChild(decl,visit2);
         if(classDecl.heritageClauses != null) {
           ts.visitNodes(classDecl.heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> { 
-            //console.log("childA!");
-            visit(n); 
+            let h:ts.HeritageClause = <ts.HeritageClause>n;
+
+            ts.visitNodes(h.types,function(n:ts.Node):ts.VisitResult<ts.Node> { 
+              let hType:ts.ExpressionWithTypeArguments = <ts.ExpressionWithTypeArguments>n;
+              let expr = hType.expression;
+
+              if(expr != null) {
+                let baseName;
+
+                switch(expr.kind) {
+                  case ts.SyntaxKind.Identifier: baseName = <ts.Identifier>expr; break;
+                  case ts.SyntaxKind.PropertyAccessExpression: baseName = (<ts.PropertyAccessExpression>expr).name; break;
+                  default: throw("unknown inheritance source");
+                }
+                
+                let baseRef = checker.getSymbolAtLocation(baseName);
+                let baseIndex = getIndex(baseRef);
+             
+                sentry.inherits.push(baseIndex);
+              }
+              return n;
+            });
             return n;
           });
         }
-        symtabPut(index,{ kind:"type", decl:node, members:{}, jsDoc:null, comment:comment });
       }
       else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
         if(index != null) {
           let tags = ts.displayPartsToString(symbol.getJsDocTags());
-          let sentry:any = symtabPut(index,{ kind:"type", decl:node, members:{}, jsDoc:null, comment:comment });
+          let sentry:any = symtabPut(index,{ kind:"type", decl:node, typeDesc:typeDesc, members:{}, jsDoc:null, comment:comment });
 
           if(tags != "") sentry.jsDoc = doctrine.parse(tags);
           ts.forEachChild(decl,visit2);
@@ -2083,7 +2135,7 @@ function generate(
     }
     ts.forEachChild(sourceFile,visit);
   }
-  saveDefs();
+  compileProperties();
   connectMethods(endpoints);
   genSources(endpoints,packageName,srcRoot,checkFile,swaggerFile,redocFile,routesFile);
 }
