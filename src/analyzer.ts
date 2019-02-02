@@ -355,7 +355,30 @@ function applyTypenameTag(schemaObject: any,name: string): void {
  */
 function applyTag(schemaObject: any,tag: any): void {
    if(tag == null) return;
-   if(tag.title == "minimum" || tag.title == "maximum") applyValueTag(schemaObject,tag.title,parseInt(tag.description));
+   if(tag.title == "minimum" || tag.title == "maximum") {
+     if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
+     applyValueTag(schemaObject,tag.title,parseInt(tag.description));
+   }
+   else if(tag.title == "minLength" || tag.title == "maxLength") {
+     if(schemaObject.type != "string") throw(`@${tag.title} can only be applied to strings`);
+     applyValueTag(schemaObject,tag.title,parseInt(tag.description));
+   }
+   else if(tag.title == "minItems" || tag.title == "maxItems")  {
+     if(schemaObject.type != "array") throw(`@${tag.title} can only be applied to arrays`);
+     applyValueTag(schemaObject,tag.title,parseInt(tag.description));
+   }
+   else if(tag.title == "format" || tag.title == "pattern") {
+     if(schemaObject.type != "string") throw(`@format can only be applied to strings`);
+
+     let value = tag.description.replace(/^{(.*)}$/,"$1");
+
+     applyValueTag(schemaObject,tag.title,value);
+   }
+   else if(tag.title == "precision") {
+     if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
+ 
+     schemaObject.precision = parseInt(tag.description);
+   }
    else if(tag.title == "type") {
      if(tag.type.type == "NameExpression") applyTypenameTag(schemaObject,tag.type.name);
    }
@@ -449,7 +472,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
     if(options != null && options.docRoot != null) docRoot = options.docRoot;
     if(options != null && options.schemaNamespace != null) schemaNamespace = options.schemaNamespace;
     switch(typeDesc.kind) {
-      case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,jsDoc,options) }; break;
+      case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,null,options) }; break;
       case ts.SyntaxKind.TypeReference: 
       {
         let index = getIndex(typeDesc);
@@ -1669,13 +1692,23 @@ function genSources(
   if(routers.length > 1) throw("Multiple Router Definitions Found");
 
   contents_part1 += `const Ajv = require('ajv');\n`;
-  contents_part1 += `\nlet ajv = new Ajv({ coerceTypes: true });\n`;
-  contents_part1 += `\najv.addKeyword('toDate', {\n`;
+  contents_part1 += `\nlet ajv = new Ajv({ coerceTypes: true });\n\n`;
+  contents_part1 += `ajv.addKeyword('toDate', {\n`;
   contents_part1 += `  modifying: true,\n`;
   contents_part1 += `  schema: false, \n`;
   contents_part1 += `  valid: true, \n`;
   contents_part1 += `  validate: function(data,dataPath,parentData,parentDataProperty) {\n`;
   contents_part1 += `    if(typeof data == "string" && parentData != null) parentData[parentDataProperty] = new Date(data);\n`;
+  contents_part1 += `  }\n`;
+  contents_part1 += `});\n\n`;
+  contents_part1 += `ajv.addKeyword('precision', {\n`;
+  contents_part1 += `  schema: true,\n`;
+  contents_part1 += `  validate: function(schema,data) {\n`;
+  contents_part1 += `    let x = data - Math.floor(data);\n`;
+  contents_part1 += `    let m = Math.pow(10,schema);\n`;
+  contents_part1 += `    let y = x*m;\n`;
+  contents_part1 += `    \n`;
+  contents_part1 += `    return y == Math.floor(y);\n`;
   contents_part1 += `  }\n`;
   contents_part1 += `});\n`;
 
