@@ -744,6 +744,7 @@ function isMagic(typeDesc:any) {
 }
 
 function isExplicitStatus(index) {
+  if(index == null) return false;
   if(typeof index == "string")  return index == "Res";
   else if(index.local == "Res" && index.module.match(/.*ts-api.*/)) return true;
   return false;
@@ -1186,7 +1187,7 @@ function returnAtom(typeDesc:any) {
   let res = {};
   let schema;
 
-  if(index.local == "FileRef") {
+  if(index != null && index.local == "FileRef") {
     let args = (<any>typeDesc).typeArguments;
 
     if(args != null) {
