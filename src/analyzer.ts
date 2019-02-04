@@ -2075,6 +2075,36 @@ function generate(
     }
   }
 
+  function compileInheritance(sentry:any,heritageClauses:ts.NodeArray<ts.HeritageClause>) {
+    if(heritageClauses != null) {
+      ts.visitNodes(heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> {
+        let h:ts.HeritageClause = <ts.HeritageClause>n;
+
+        ts.visitNodes(h.types,function(n:ts.Node):ts.VisitResult<ts.Node> {
+          let hType:ts.ExpressionWithTypeArguments = <ts.ExpressionWithTypeArguments>n;
+          let expr = hType.expression;
+
+          if(expr != null) {
+            let baseName;
+
+            switch(expr.kind) {
+              case ts.SyntaxKind.Identifier: baseName = <ts.Identifier>expr; break;
+              case ts.SyntaxKind.PropertyAccessExpression: baseName = (<ts.PropertyAccessExpression>expr).name; break;
+              default: throw("unknown inheritance source");
+            }
+
+            let baseRef = checker.getSymbolAtLocation(baseName);
+            let baseIndex = getIndex(baseRef);
+
+            sentry.inherits.push(baseIndex);
+          }
+          return n;
+        });
+        return n;
+      });
+    }
+  }
+
   // Recursively analyze an exported member of a source file.  Relevant
   // members include classes and interfaces and other refrenced types.
   function visit(node: ts.Node) {
@@ -2118,41 +2148,17 @@ function generate(
 
         if(tags != "") sentry.jsDoc = doctrine.parse(tags);
         ts.forEachChild(decl,visit2);
-        if(classDecl.heritageClauses != null) {
-          ts.visitNodes(classDecl.heritageClauses,function(n:ts.Node):ts.VisitResult<ts.Node> { 
-            let h:ts.HeritageClause = <ts.HeritageClause>n;
-
-            ts.visitNodes(h.types,function(n:ts.Node):ts.VisitResult<ts.Node> { 
-              let hType:ts.ExpressionWithTypeArguments = <ts.ExpressionWithTypeArguments>n;
-              let expr = hType.expression;
-
-              if(expr != null) {
-                let baseName;
-
-                switch(expr.kind) {
-                  case ts.SyntaxKind.Identifier: baseName = <ts.Identifier>expr; break;
-                  case ts.SyntaxKind.PropertyAccessExpression: baseName = (<ts.PropertyAccessExpression>expr).name; break;
-                  default: throw("unknown inheritance source");
-                }
-                
-                let baseRef = checker.getSymbolAtLocation(baseName);
-                let baseIndex = getIndex(baseRef);
-             
-                sentry.inherits.push(baseIndex);
-              }
-              return n;
-            });
-            return n;
-          });
-        }
+        compileInheritance(sentry,classDecl.heritageClauses);
       }
       else if(decl.kind == ts.SyntaxKind.InterfaceDeclaration) {
         if(index != null) {
+          let intfDecl = <ts.InterfaceDeclaration>decl;
           let tags = ts.displayPartsToString(symbol.getJsDocTags());
-          let sentry:any = symtabPut(index,{ kind:"type", decl:node, typeDesc:typeDesc, members:{}, jsDoc:null, comment:comment });
+          let sentry:any = symtabPut(index,{ kind:"type", decl:node, typeDesc:typeDesc, members:{}, inherits:[], jsDoc:null, comment:comment });
 
           if(tags != "") sentry.jsDoc = doctrine.parse(tags);
           ts.forEachChild(decl,visit2);
+          compileInheritance(sentry,intfDecl.heritageClauses);
         }
       }
     }
