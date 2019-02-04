@@ -1399,39 +1399,58 @@ function genSwaggerRoutes(def:any,synthesizedTypes:any,router:Router,controllers
 }
 
 function genAssignment1(id:string,dataSource:string,kind:string,typeSpec:any,content:string) {
+  let output = "";
   let type = typeSpec.type;
 
   if(content != "flat" && (type == "object" || type == null || type == "array")) {
     if(type == "array") {
-      if(typeSpec.items.type == "object") {
-        if(kind == "urlParam")
-          return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
-        else
-          return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+      if(typeSpec.items.type == "object" || typeSpec.items['$ref'] != null) {
+        output = `      let ${id};\n`;
       }
       else {
         if(kind == "urlParam")
-          return `      let ${id} = req.params.${id};\n`;
+          output = `      let ${id} = req.params.${id};\n`;
         else
-          return `      let ${id} = req.${dataSource}.${id};\n`;
+          output = `      let ${id} = req.${dataSource}.${id};\n`;
       }
     }
     else {
-      if(kind == "urlParam")
-        return `      let ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id};\n`;
-      else
-        return `      let ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id};\n`;
+      output = `      let ${id};\n`;
     }
   }
   else {
     if(kind == "urlParam")
-      return `      let ${id} = req.params.${id};\n`;
+      output = `      let ${id} = req.params.${id};\n`;
     else
-      return `      let ${id} = req.${dataSource}.${id};\n`;
+      output = `      let ${id} = req.${dataSource}.${id};\n`;
   }
+  return output;
 }
 
 function genAssignment2(id:string,dataSource:string,kind:string,typeSpec:any,content:string) {
+  let output = "";
+  let type = typeSpec.type;
+
+  if(content != "flat" && (type == "object" || type == null || type == "array")) {
+    if(type == "array") {
+      if(typeSpec.items.type == "object" || typeSpec.items['$ref'] != null) {
+        if(kind == "urlParam")
+          output = `      try { ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id}; } catch(e) {};\n`;
+        else
+          output =  `      try { ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id}; } catch(e) {};\n`;
+      }
+    }
+    else {
+      if(kind == "urlParam")
+        output = `      try { ${id} = (typeof req.params.${id} == "string")?JSON.parse(req.params.${id}):req.params.${id}; } catch(e) {};\n`;
+      else
+        output =  `      try { ${id} = (typeof req.${dataSource}.${id} == "string")?JSON.parse(req.${dataSource}.${id}):req.${dataSource}.${id}; } catch(e) {};\n`;
+    }
+  }
+  return output;
+}
+
+function genAssignment3(id:string,dataSource:string,kind:string,typeSpec:any,content:string) {
   let output = "";
   let type = typeSpec.type;
 
@@ -1483,10 +1502,12 @@ function genControllerArgListA(dataSource:string,params:any[],endpointName:strin
   let output = "";
   let assignments1 = genControllerArgAssignmentsA(dataSource,params,endpointName,genAssignment1);
   let assignments2 = genControllerArgAssignmentsA(dataSource,params,endpointName,genAssignment2);
+  let assignments3 = genControllerArgAssignmentsA(dataSource,params,endpointName,genAssignment3);
 
   if(assignments1 != "") output += `${assignments1}`;
   if(assignments2 != "") output += `\n${assignments2}\n`;
-  output += `      const _x = await controller.${endpointName}(`;
+  if(assignments3 != "") output += `\n${assignments3}\n`;
+  output += `      const __res = await controller.${endpointName}(`;
   for(let i = 0;i < params.length;i++) {
     if(i != 0) output += ',';
     output += `${params[i].id}`;
@@ -1500,21 +1521,36 @@ function genControllerArgListB(dataSource:string,params:any[],endpointName:strin
   let argListFormal = [];
   let assignments1 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment1,argListFormal);
   let assignments2 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment2,null);
+  let assignments3 = genControllerArgAssignmentsB(dataSource,params,endpointName,genAssignment3,null);
+  let anum;
 
   if(assignments1 != "") output += `${assignments1}`;
   if(assignments2 != "") output += `\n${assignments2}\n`;
-  output += `      const _x = await controller.${endpointName}(`;
+  if(assignments3 != "") output += `\n${assignments3}\n`;
+  for(let i = 0;i < argListFormal.length;i++) {
+    if(typeof argListFormal[i] != "string") {
+      if(anum == null) anum = 0;
+      output += `      let __arg${anum++} = {};\n`;
+    }
+  }
+  if(anum != null) {
+    anum = 0;
+
+    for(let i = 0;i < argListFormal.length;i++) {
+      if(typeof argListFormal[i] != "string") {
+        for(let j = 0;j < argListFormal[i].length;j++) {
+          output += `      if(${argListFormal[i][j]} != null) __arg${anum}.${argListFormal[i][j]} = ${argListFormal[i][j]};\n`;
+        }
+        anum++;
+      }
+    }
+  }
+  if(anum != null) anum = 0;
+  output += `      const __res = await controller.${endpointName}(`;
   for(let i = 0;i < argListFormal.length;i++) {
     if(i != 0) output += ',';
     if(typeof argListFormal[i] == "string") output += `${argListFormal[i]}`;
-    else {
-      output += "{ ";
-      for(let j = 0;j < argListFormal[i].length;j++) {
-        if(j != 0) output += ', ';
-        output += `${argListFormal[i][j]}:${argListFormal[i][j]}`;
-      }
-      output += " }";
-    }
+    else output += `__arg${anum++}`;
   }
   output += `);\n\n`;
   return output;
@@ -1634,7 +1670,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     }
     if(params.length - numURLParam > 1) output += genControllerArgListA(dataSource,params,endpointName);
     else output += genControllerArgListB(dataSource,params,endpointName);
-    output += `      success_response(_x,req,res,next);\n`;
+    output += `      success_response(__res,req,res,next);\n`;
     output += `    }\n`;
     output += `    catch(e) { error_response(e,req,res,next); }\n`;
     output += `  });\n`;
