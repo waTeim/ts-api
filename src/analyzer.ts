@@ -349,18 +349,23 @@ function applyTypenameTag(schemaObject: any,name: string): void {
 
 /**
  * This function adds a tag to a JSON schema component.  The type of tag to apply
- * is inferred from the contents of the tag.
+ * is inferred from the contents of the tag.  If the tag is not applicable to the
+ * type, then an error is raised.  If the type is an array, the elemement type
+ * is used where applicable.
+ *
  * @param {any} schemaObject Reference to the schema component.
  * @param {any} tag The tag to apply.
  */
 function applyTag(schemaObject: any,tag: any): void {
    if(tag == null) return;
    if(tag.title == "minimum" || tag.title == "maximum") {
-     if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
+     if(schemaObject.type == "array") applyTag(schemaObject.items,tag);
+     else if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
      applyValueTag(schemaObject,tag.title,parseInt(tag.description));
    }
    else if(tag.title == "minLength" || tag.title == "maxLength") {
-     if(schemaObject.type != "string") throw(`@${tag.title} can only be applied to strings`);
+     if(schemaObject.type == "array") applyTag(schemaObject.items,tag);
+     else if(schemaObject.type != "string") throw(`@${tag.title} can only be applied to strings`);
      applyValueTag(schemaObject,tag.title,parseInt(tag.description));
    }
    else if(tag.title == "minItems" || tag.title == "maxItems")  {
@@ -368,19 +373,22 @@ function applyTag(schemaObject: any,tag: any): void {
      applyValueTag(schemaObject,tag.title,parseInt(tag.description));
    }
    else if(tag.title == "format" || tag.title == "pattern") {
-     if(schemaObject.type != "string") throw(`@format can only be applied to strings`);
+     if(schemaObject.type == "array") applyTag(schemaObject.items,tag);
+     else if(schemaObject.type != "string") throw(`@format can only be applied to strings`);
 
      let value = tag.description.replace(/^{(.*)}$/,"$1");
 
      applyValueTag(schemaObject,tag.title,value);
    }
    else if(tag.title == "precision") {
-     if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
+     if(schemaObject.type == "array") applyTag(schemaObject.items,tag);
+     else if(schemaObject.type != "number") throw(`@${tag.title} can only be applied to numbers`);
  
      schemaObject.precision = parseInt(tag.description);
    }
    else if(tag.title == "type") {
-     if(tag.type.type == "NameExpression") applyTypenameTag(schemaObject,tag.type.name);
+     if(schemaObject.type == "array") applyTag(schemaObject.items,tag);
+     else if(tag.type.type == "NameExpression") applyTypenameTag(schemaObject,tag.type.name);
    }
 }
 
