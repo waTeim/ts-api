@@ -6,5 +6,24 @@ export { default as EndpointCheckBinding } from "./EndpointCheckBinding";
 export { default as response } from "./response";
 export { swaggerUi };
 export { serveStatic };
-export { all, controller, del, get, post, put, router, urlParam  } from "./decorators";
+export { 
+  all,
+  controller,
+  del,
+  format,
+  get,
+  maxItems,
+  maxLength,
+  maximum,
+  minItems,
+  minLength,
+  minimum,
+  pattern,
+  post,
+  precision,
+  put,
+  router,
+  type,
+  urlParam
+} from "./decorators";
 export { FileRef, StatusCodes, Res } from "./magic";

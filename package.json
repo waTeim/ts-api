@@ -1,6 +1,6 @@
 {
   "name": "ts-api",
-  "version": "2.9.4",
+  "version": "2.10.0",
   "description": "Create documented REST API using controllers and interfaces in typescript",
   "main": "dist",
   "types": "dist",
@@ -11,7 +11,7 @@
   "dependencies": {
     "@types/node": "^8.10.0",
     "@types/swagger-ui-express": "^3.0.0",
-    "ajv": "^6.3.0",
+    "ajv": "^6.8.1",
     "bluebird": "^3.5.1",
     "commander": "^2.15.1",
     "doctrine": "^2.1.0",

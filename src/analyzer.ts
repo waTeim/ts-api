@@ -633,6 +633,33 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
   }
 }
 
+function synthesizeParameterJSDoc(parm:TypedId) {
+  let jsDoc;
+  let jsDocSrc = [];
+  let type1 = ["format","pattern","type"];
+  let type2 = ["minimum","maximum","minLength","maxLength","minItems","maxItems","precision"];
+
+
+  if(parm.decorators != null ) {
+    for(let decoratorName in parm.decorators) {
+      if(type1.indexOf(decoratorName) > -1 && parm.decorators[decoratorName].length >= 1) {
+        if(jsDocSrc.length == 0) jsDocSrc.push('/**');
+        jsDocSrc.push(` * @${decoratorName} {${parm.decorators[decoratorName][0]}}`);
+      }
+      else if(type2.indexOf(decoratorName) > -1 && parm.decorators[decoratorName].length >= 1) {
+        if(jsDocSrc.length == 0) jsDocSrc.push('/**');
+        jsDocSrc.push(` * @${decoratorName} ${parm.decorators[decoratorName][0]}`);
+      }
+    }
+    if(jsDocSrc.length != 0) {
+      jsDocSrc.push(" */");
+      jsDoc = doctrine.parse(jsDocSrc.join('\n'),{ unwrap:true });
+      if(jsDoc != null) jsDoc = [jsDoc];
+    }
+  }
+  return jsDoc;
+}
+
 /**
  * This function constructs the JSON schema corresponding to the method parameter
  * list. This is accomplished by contstructing the schema corresponding to a virtual
@@ -653,7 +680,8 @@ function parameterListToJSON(method: DecoratedFunction,options?:any):Object {
   let required = [];
 
   for(let i = 0;i < method.methodParameters.length;i++) {
-    let jsonValue = typeToJSON(method.methodParameters[i].type,null,options);;
+    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
+    let jsonValue = typeToJSON(method.methodParameters[i].type,jsDoc,options);
 
     if(jsonValue) {
       props[method.methodParameters[i].id] = jsonValue;
@@ -1070,7 +1098,8 @@ function genSwaggerPathParameters(router:Router,controller:Controller,method:Dec
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
-    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
+    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
+    let parameterTypedef:any = typeToJSON(parameter.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
 
     if(parameterTypedef != null && parameterTypedef.type == "object") {
       for(let pname in parameterTypedef.properties) {
@@ -1095,7 +1124,8 @@ function genSwaggerRequestParameters(router:Router,controller:Controller,method:
   // that aggregate.
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
-    let parameterTypedef:any = typeToJSON(parameter.type,null,{ expandRefs:true, docRoot:"#/components/schemas" });
+    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
+    let parameterTypedef:any = typeToJSON(parameter.type,jsDoc,{ expandRefs:true, docRoot:"#/components/schemas" });
 
     if(parameterTypedef != null && parameterTypedef.type == "object") {
       for(let pname in parameterTypedef.properties) {
@@ -1123,8 +1153,9 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
 
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
-    let parameterTypedef:any = typeToJSON(parameter.type,null,{ schemaNamespace:"swagger", docRoot:"#/components/schemas" });
-    let parameterTypedefEx:any = typeToJSON(parameter.type,null,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
+    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
+    let parameterTypedef:any = typeToJSON(parameter.type,jsDoc,{ schemaNamespace:"swagger", docRoot:"#/components/schemas" });
+    let parameterTypedefEx:any = typeToJSON(parameter.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
 
     if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
       parameters.push({ name:parameter.id, required:parameterTypedef.required, schema:parameterTypedef });
@@ -1648,9 +1679,12 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
     // Gather parameter metadata prior to output
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
       let parm = endpoints[i].methodParameters[j];
-      let parmType = typeToJSON(parm.type,null,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/definitions" })
+      let jsDoc = synthesizeParameterJSDoc(endpoints[i].methodParameters[j]);
+      let parmType = typeToJSON(parm.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/definitions" })
 
       if(parm.decorators != null) {
+        let isURLDecorated = false;
+
         for(let decoratorName in parm.decorators) {
           if(decoratorName == 'urlParam') {
             let decoratorArgs = parm.decorators[decoratorName];
@@ -1659,6 +1693,13 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
             else params.push({ id:parm.id, kind: "urlParam", type:parmType });
             numURLParam += 1;
           }
+        }
+        if(!isURLDecorated) {
+          if(isURLParam(parm.id,router,controllerIndex[endpoints[i].classRef],endpointPathDecomposition)) {
+            params.push({ id:parm.id, kind: "urlParam", type:parmType });
+            numURLParam += 1;
+          }
+          else params.push({ id:parm.id, kind: "regular", type:parmType });
         }
       }
       else if(isURLParam(parm.id,router,controllerIndex[endpoints[i].classRef],endpointPathDecomposition)) {
@@ -2041,7 +2082,7 @@ function generate(
 
         for(let i = 0;i < tags.length;i++) {
           if(tags[i].name == "integer") tagSrc.push(" * @type {integer}");
-          else tagSrc.push(` * @${tags[i].name } ${tags[i].text}`);
+          else tagSrc.push(` * @${tags[i].name} ${tags[i].text}`);
         }
         tagSrc.push(" */");
         try {
