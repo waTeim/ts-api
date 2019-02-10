@@ -1,4 +1,4 @@
-import EndpointCheckBinding from './EndpointCheckBinding'; 
+import ControllerProperties from './ControllerProperties'; 
 
 /**
  * ControllerBase
@@ -9,21 +9,13 @@ import EndpointCheckBinding from './EndpointCheckBinding';
  * class. Derived classes will automatically be constructed from these values.
  */
 export default class ControllerBase {
-  binding: EndpointCheckBinding;
-
+  protected properties: ControllerProperties;
   public path: string;
-  public context: any;
-  public req: any;
-  public res: any;
-  public next: Function;
 
-  constructor(context:any,binding: EndpointCheckBinding,req:any,res:any,next:Function) {
-    this.context = context;
-    this.binding = binding;
-    this.req = req;
-    this.res = res;
-    this.next = next;
+  constructor(properties:ControllerProperties) {
+    this.properties = properties;
   }
  
-  getEndpointSignatureBinding() { return this.binding; }
+  getEndpointSignatureBinding() { return this.properties.binding; }
+  getProperties() { return this.properties; }
 }

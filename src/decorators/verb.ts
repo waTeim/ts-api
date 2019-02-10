@@ -1,4 +1,3 @@
-import EndpointCheckBinding from '../EndpointCheckBinding';
 const Promise = require('bluebird');
 
 /**
@@ -58,7 +57,8 @@ export default function verb(target:any,key:string,originalMethod:any,errorHandl
               function(reason) { 
                 if(errorHandler != null) {
                   try {
-                    let errorHandlerResult = errorHandler(reason,controller.req,controller.res,controller.next);
+                    let properties = controller.getProperties();
+                    let errorHandlerResult = errorHandler(reason,properties.req,properties.res,properties.next);
 
                     if(errorHandlerResult != null && typeof errorHandlerResult == "object") {
                       if(errorHandlerResult.status == null) errorHandlerResult.status = 500;
@@ -83,7 +83,8 @@ export default function verb(target:any,key:string,originalMethod:any,errorHandl
     }
     catch(e) {
       if(errorHandler != null) {
-        let errorHandlerResult = errorHandler(e,controller.req,controller.res,controller.next);
+        let properties = controller.getProperties();
+        let errorHandlerResult = errorHandler(e,properties.req,properties.res,properties.next);
 
         if(errorHandlerResult != null && typeof errorHandlerResult == "object") {
           if(errorHandlerResult.status == null) errorHandlerResult.status = 500;

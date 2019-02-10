@@ -1614,6 +1614,7 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
   output += `const express = require('express');\n`;
   output += `const api = require('ts-api');\n`;
   output += `const EndpointCheckBinding = api.EndpointCheckBinding;\n`;
+  output += `const ControllerProperties = api.ControllerProperties;\n`;
   output += `const error_response = api.response.error;\n`;
   output += `const success_response = api.response.success;\n`;
 
@@ -1671,7 +1672,8 @@ function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,controller
       output += `      if(req.body == null) throw("body is null (possible missing body parser)")\n`;
       dataSource = "body";
     }
-    output += `      const controller = new ${endpoints[i].classRef}Module.default(root.context,binding,req,res,next);\n`
+    output += `      const properties = new ControllerProperties(binding,root.context,req,res,next);\n`
+    output += `      const controller = new ${endpoints[i].classRef}Module.default(properties);\n`
   
     let params = [];
     let numURLParam = 0;
