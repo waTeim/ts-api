@@ -5,7 +5,7 @@
     "declarationDir": "dist",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-        "moduleResolution": "node",
+    "moduleResolution": "node",
     "outDir": "dist",
     "sourceMap": true,
     "target":"es5"
