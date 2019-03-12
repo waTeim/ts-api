@@ -32,13 +32,12 @@ export function genSwaggerPreamble(def: any,projectName:string,router:Router,con
  * @param {Controller[]} array of controller definitions.
  */
 export function genSwaggerRootTags(def: any,router:Router,controllers:Controller[]): void {
-  let tags = {};
+  let tags = [];
 
   for(let i = 0;i < controllers.length;i++) {
     let tag = decompositionToPath(controllers[i].decomposition,"swagger");
 
-    if(controllers[i].comment != null && controllers[i].comment != '')
-      tags[tag] = { description:controllers[i].comment };
+    tags.push(tag);
   }
   def.tags = tags;
 }
@@ -190,7 +189,7 @@ function returnAtom(typeDesc:any) {
     schema = typeToJSON(typeDesc,null,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
   }
 
-  res[contentType] = schema;
+  res[contentType] = { schema:schema };
   return res;
 }
 
