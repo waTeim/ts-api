@@ -126,8 +126,6 @@
       debug: program.debug
     };
 
-console.log("xxxx");
-
     analyzer.generate(env,checkFile,swaggerFile,redocFile,routesFile); 
   });
 

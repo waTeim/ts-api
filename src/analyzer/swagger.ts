@@ -37,7 +37,8 @@ export function genSwaggerRootTags(def: any,router:Router,controllers:Controller
   for(let i = 0;i < controllers.length;i++) {
     let tag = decompositionToPath(controllers[i].decomposition,"swagger");
 
-    tags.push(tag);
+    if(controllers[i].comment != null && controllers[i].comment != '')
+      tags.push({ name:tag, description:controllers[i].comment });
   }
   def.tags = tags;
 }
