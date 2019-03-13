@@ -147,11 +147,11 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
     parameterNames.push(parameterName);
     if(method.methodParameters[i].required) required.push(parameterName);
   }
-  return {
+
+  let res:any = {
     classRef: `${method.classRef}`,
     method: `${method.name}`,
     parameterNames: parameterNames,
-    required: required,
     schema: {
       //"$schema": "http://json-schema.org/draft-07/schema#",
       title: `${method.name} plist`,
@@ -160,6 +160,9 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
       properties: props
     }
   };
+
+  if(required.length > 0) res.required = required;
+  return res;
 }
 
 /**
@@ -250,7 +253,7 @@ function isFileReturn(index) {
  * traversal of the AST of the typescript sources.
  *
  */
-export function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string): Object {
+export function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string,expandOptions?:any): Object {
   let res = {};
 
   for(let skey in symtab) {
@@ -280,7 +283,12 @@ export function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string)
             }
           } 
         }
-        else if(decl.type != null) res[schemaRefId] = typeToJSON(decl.type,sentry.jsDoc,{ schemaNamespace:schemaNamespace, docRoot:docRoot });
+        else if(decl.type != null) {
+          let options = { schemaNamespace:schemaNamespace, docRoot:docRoot };
+
+          for(let option in expandOptions) options[option] = expandOptions[option];
+          res[schemaRefId] = typeToJSON(decl.type,sentry.jsDoc,{ enclosedBy:skey, options:options });
+        }
         if(required.length > 0) res[schemaRefId].required = required;
         if(sentry.comment != null) res[schemaRefId].description = sentry.comment;
         if(sentry.schema == null) sentry.schema = {};
@@ -289,6 +297,22 @@ export function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string)
           res[schemaRefId] = { allOf:allOf };
         }
         sentry.schema[schemaNamespace] = res[schemaRefId];
+      }
+    }
+  }
+  // Now traverse again, and this time look for the itypes, all the processing has been
+  // done in the previous traversal, so just output the generated def.
+  if(expandOptions != null && expandOptions.firstclassIntermediates) {
+    for(let skey in symtab) {
+      let sentry = symtab[skey];
+
+      if(sentry.kind == "itype") {
+        let esentry = symtabGet(sentry.enclosedBy);
+
+        if(esentry != null && esentry.relevant) {
+          let schemaRefId = sentry.schemaRefId;
+          res[schemaRefId] = sentry.schema;
+        }
       }
     }
   }

@@ -260,7 +260,7 @@ export function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,con
     for(let j = 0;j < endpoints[i].methodParameters.length;j++) {
       let parm = endpoints[i].methodParameters[j];
       let jsDoc = synthesizeParameterJSDoc(endpoints[i].methodParameters[j]);
-      let parmType = typeToJSON(parm.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/definitions" })
+      let parmType = typeToJSON(parm.type,jsDoc,{ expandRefs:true, firstclassIntermediates:true, schemaNamespace:"swagger", docRoot:"#/definitions" })
 
       if(parm.decorators != null) {
         let isURLDecorated = false;

@@ -35,7 +35,7 @@ export function genSwaggerRootTags(def: any,router:Router,controllers:Controller
   let tags = [];
 
   for(let i = 0;i < controllers.length;i++) {
-    let tag = decompositionToPath(controllers[i].decomposition,"swagger");
+    let tag = controllers[i].classRef;
 
     if(controllers[i].comment != null && controllers[i].comment != '')
       tags.push({ name:tag, description:controllers[i].comment });
@@ -104,7 +104,7 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
   for(let i = 0;i < method.methodParameters.length;i++) {
     let parameter = method.methodParameters[i];
     let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
-    let parameterTypedef:any = typeToJSON(parameter.type,jsDoc,{ schemaNamespace:"swagger", docRoot:"#/components/schemas" });
+    let parameterTypedef:any = typeToJSON(parameter.type,jsDoc,{ schemaNamespace:"swagger", firstclassIntermediates:true, docRoot:"#/components/schemas" });
     let parameterTypedefEx:any = typeToJSON(parameter.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
 
     if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
@@ -326,6 +326,7 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
     let methods: DecoratedFunction[] = controllers[i].methods;
     let p2 = decompositionToPath(controllers[i].decomposition,"swagger");
     let comment = controllers[i].comment;
+    let tag = controllers[i].classRef;
     
     // For each controller, iterate over every method and create a path
     // for it.  If the method verb decorator contains a path use it, otherwise
@@ -344,9 +345,9 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
       let p3 = decompositionToPath(methodPathDecomposition,"swagger");
 
       // operationId is a unique identifier (across entire doc) for an operation
-      let operationId = controllers[i].classRef + '-' + methods[j].name;
+      let operationId = tag + '-' + methods[j].name;
 
-      let path:any = { tags:[p2], operationId: operationId, responses:responses };
+      let path:any = { tags:[tag], operationId: operationId, responses:responses };
       let pathId = '/' + p2 + '/' + p3;
       let pathParameters = genSwaggerPathParameters(router,controllers[i],methods[j],methodPathDecomposition);
 

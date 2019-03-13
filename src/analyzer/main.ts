@@ -86,7 +86,7 @@ function genSources(
   }
 
   let definitions1 = symtabToSchemaDefinitions("check","#/definitions");
-  let definitions2 = symtabToSchemaDefinitions("swagger","#/components/schemas");
+  let definitions2 = symtabToSchemaDefinitions("swagger","#/components/schemas",{ firstclassIntermediates:true });
   let synthesizedTypes = {};
 
   contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions1,null,2)}\n`;
@@ -379,7 +379,7 @@ export function generate(
         type:typeDesc,
         jsDoc:jsDoc,
         check:{ schemaNamespace:"check", docRoot:"#/definitions" },
-        swagger:{ schemaNamespace:"swagger", docRoot:"#/components/schemas" },
+        swagger:{ enclosedBy:parentIndex, options:{ schemaNamespace:"swagger", docRoot:"#/components/schemas", firstclassIntermediates:true }},
         optional:optional
       });
     }

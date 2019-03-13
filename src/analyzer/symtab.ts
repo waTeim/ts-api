@@ -5,6 +5,7 @@ const tsany = ts as any;
 
 let symtab: any = {};
 let schemaRefIds:any = {};
+let numIntermediates = 0;
 let checker;
 
 function setChecker(program) {
@@ -48,6 +49,14 @@ function symtabPut(key:any,obj:any):any {
     return obj;
   }
   return null;
+}
+
+function storeIntermediate(obj:any) {
+  let key = { local:`Intermediate${numIntermediates++}`, module:"ts-api" }
+ 
+  obj.kind = "itype";
+  symtabPut(key,obj);
+  return key.local;
 }
 
 /**
@@ -114,12 +123,12 @@ function mapTypeDescName(docRoot:string,name:string): Object {
  * @param {any} options Optional values effecting the output form. Currently
  * serves as a parameter to the recursive call to typeToJSON.
  */
-function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function unionToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
    let unionDesc = <ts.UnionTypeNode>typeDesc;
    let res = { anyOf:[] };
 
    for(let i = 0;i < unionDesc.types.length;i++) {
-     let unionElement = typeToJSON(unionDesc.types[i],null,options);
+     let unionElement = typeToJSON(unionDesc.types[i],null,context);
 
      if(unionElement != null) res.anyOf.push(unionElement);
    }
@@ -135,12 +144,12 @@ function unionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
  * @param {any} options Optional values effecting the output form. Currently
  * serves as a parameter to the recursive call to typeToJSON.
  */
-function intersectionToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function intersectionToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
    let intersectionDesc = <ts.IntersectionTypeNode>typeDesc;
    let res = { allOf:[] };
 
    for(let i = 0;i < intersectionDesc.types.length;i++) {
-     let intersectionElement = typeToJSON(intersectionDesc.types[i],null,options);
+     let intersectionElement = typeToJSON(intersectionDesc.types[i],null,context);
 
      if(intersectionElement != null) res.allOf.push(intersectionElement);
    }
@@ -175,7 +184,7 @@ function literalToJSON(typeDesc:any,jsDoc:any):Object {
   throw("unknown literal type (" + literal + ")");
 }
 
-function typeliteralToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function typeliteralToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let typeliteralDesc = <ts.TypeLiteralNode>typeDesc;
   let properties = {};
   let required = [];
@@ -187,13 +196,28 @@ function typeliteralToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
     if(element.name != null) {
       let propertyName = tsany.getTextOfNode(element.name);
 
-      properties[propertyName] = typeToJSON(element,null,options);
+      properties[propertyName] = typeToJSON(element,null,context);
       if(element.questionToken == null) required.push(propertyName);
     }
-    else elements.push(typeToJSON(element,null,options));
+    else elements.push(typeToJSON(element,null,context));
   }
   if(Object.keys(properties).length > 0 && elements.length == 0) {
-    return { type:"object", properties:properties, required:required };
+    if(context != null && context.options != null && context.options.firstclassIntermediates) {
+      let schema:any = { type:"object", properties:properties };
+
+      if(required.length > 0) schema.required = required;
+
+      let iname = storeIntermediate({ enclosedBy:context.enclosedBy, schema:schema });
+
+      return { "$ref":`${context.options.docRoot}/${iname}` };
+    }
+    else {
+      let schema:any = { type:"object", properties:properties };
+ 
+      if(required.length > 0) schema.required = required;
+
+      return schema;
+    }
   }
   else if(elements.length != 0 && Object.keys(properties).length == 0) {
     return { anyOf:elements };
@@ -206,19 +230,19 @@ function typeliteralToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   }
 }
 
-function tupleTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function tupleTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
    let tupleDesc = <ts.TupleTypeNode>typeDesc;
    let res = { allOf:[] };
    
    for(let i = 0;i < tupleDesc.elementTypes.length;i++) {
-     let tupleElement = typeToJSON(tupleDesc.elementTypes[i],null,options);
+     let tupleElement = typeToJSON(tupleDesc.elementTypes[i],null,context);
      
      if(tupleElement != null) res.allOf.push(tupleElement);
    }
    return res;
 }
 
-function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let iaDesc = <ts.IndexedAccessTypeNode>typeDesc;
   let indexType = checker.getTypeFromTypeNode(typeDesc.indexType);
   let objectType = checker.getTypeFromTypeNode(typeDesc.objectType);
@@ -227,10 +251,10 @@ function indexedAccessTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   let res;
 
   if(index == "ArrayBuffer" && objs == "ArrayBufferTypes") return { type:"string", hint:{ encoding:"base64" }};
-  return typeToJSON(typeDesc.objectType,jsDoc,options);
+  return typeToJSON(typeDesc.objectType,jsDoc,context);
 }
 
-function mappedTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function mappedTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let mapDesc = <ts.MappedTypeNode>typeDesc;
   let constraint = ts.getEffectiveConstraintOfTypeParameter(mapDesc.typeParameter);
   let res;
@@ -242,16 +266,16 @@ function mappedTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
   //console.log("constraint: ",constraint);
   //console.log("desc: ",typeDesc);
   
-  return typeToJSON(typeDesc.nextContainer.type,jsDoc,options);
+  return typeToJSON(typeDesc.nextContainer.type,jsDoc,context);
 }
 
-function conditionalTypeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function conditionalTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let conditionalDesc = <ts.ConditionalTypeNode>typeDesc;
   let type = checker.getTypeFromTypeNode(typeDesc);
 
   ///console.log("conditional type = ",checker.typeToString(type));
 
-  return typeToJSON(conditionalDesc.extendsType,jsDoc,options);
+  return typeToJSON(conditionalDesc.extendsType,jsDoc,context);
 }
 
 /**
@@ -405,20 +429,21 @@ function getIndex(desc:ts.TypeNode|ts.Symbol) {
  *  @param {any} jsDoc The associated JSDoc comment.
  *  @param {any} options Affects the rules governing the structure of the resulting schema.
  */
-function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
+function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let res;
   let type = checker.getTypeFromTypeNode(typeDesc);
 
-  if(typeDesc== null) return { type:"object" };
+  if(context != null && context.options == null) context = { options:context };
+  if(typeDesc == null) return { type:"object" };
   if(typeDesc.constructor.name == 'NodeObject') {
     let unknown = false;
     let docRoot = "#/definitions";
     let schemaNamespace = "check";
 
-    if(options != null && options.docRoot != null) docRoot = options.docRoot;
-    if(options != null && options.schemaNamespace != null) schemaNamespace = options.schemaNamespace;
+    if(context != null && context.options != null && context.options.docRoot != null) docRoot = context.options.docRoot;
+    if(context != null && context.options != null && context.options.schemaNamespace != null) schemaNamespace = context.options.schemaNamespace;
     switch(typeDesc.kind) {
-      case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,null,options) }; break;
+      case ts.SyntaxKind.ArrayType: res = { type:"array", items:typeToJSON(typeDesc.elementType,null,context) }; break;
       case ts.SyntaxKind.TypeReference: 
       {
         let index = getIndex(typeDesc);
@@ -426,7 +451,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
         if(index == "Array") {
           let arg = (<any>typeDesc).typeArguments[0];
 
-          res = { type:"array", items:typeToJSON(arg,jsDoc,options) }
+          res = { type:"array", items:typeToJSON(arg,jsDoc,context) }
         }
         else if(index == "Date") {
           res = { oneOf:[{ type:"string", format:"date" }, { type:"string", format:"date-time" }], toDate:true, content:"flat" };
@@ -441,7 +466,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
             else name = null;
           }
           res = mapTypeDescName(docRoot,name);
-          if(res != null && res['$ref'] != null && options && options.expandRefs) {
+          if(res != null && res['$ref'] != null && context != null && context.options != null && context.options.expandRefs) {
             let sentry:any = symtabGet(index);
 
             if(sentry == null) throw(`undefined type reference ${index}`);
@@ -454,7 +479,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       {
         let propertySignatureDesc:ts.PropertySignature = <ts.PropertySignature>typeDesc;
 
-        if(propertySignatureDesc.type != null) res = typeToJSON(propertySignatureDesc.type,jsDoc,options);
+        if(propertySignatureDesc.type != null) res = typeToJSON(propertySignatureDesc.type,jsDoc,context);
         else res = null;
       }
       break;
@@ -463,14 +488,14 @@ function typeToJSON(typeDesc:any,jsDoc:any,options?:any):Object {
       case ts.SyntaxKind.TypeQuery: /* console.log(`ignoring type query ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.ParenthesizedType: /* console.log(`ignoring paranthesized type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.IndexSignature: /* console.log(`ignoring index signature ${checker.typeToString(type)}`); */ break;
-      case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc,context); break;
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
-      case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.ConditionalType: res = conditionalTypeToJSON(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.TypeLiteral: res = typeliteralToJSON(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.MappedType: res = mappedTypeToJSON(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.TupleType: res = tupleTypeToJSON(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc,options); break;
+      case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc,context); break;
+      case ts.SyntaxKind.ConditionalType: res = conditionalTypeToJSON(typeDesc,jsDoc,context); break;
+      case ts.SyntaxKind.TypeLiteral: res = typeliteralToJSON(typeDesc,jsDoc,context); break;
+      case ts.SyntaxKind.MappedType: res = mappedTypeToJSON(typeDesc,jsDoc,context); break;
+      case ts.SyntaxKind.TupleType: res = tupleTypeToJSON(typeDesc,jsDoc,context); break;
+      case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc,context); break;
       default: unknown = true; break;
     }
     if(unknown) throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
