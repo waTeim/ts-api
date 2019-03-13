@@ -345,7 +345,7 @@ function genSwaggerPaths(def:any,synthesizedTypes:any,router:Router,controllers:
       let p3 = decompositionToPath(methodPathDecomposition,"swagger");
 
       // operationId is a unique identifier (across entire doc) for an operation
-      let operationId = tag + '-' + methods[j].name;
+      let operationId = tag + '_' + methods[j].name;
 
       let path:any = { tags:[tag], operationId: operationId, responses:responses };
       let pathId = '/' + p2 + '/' + p3;
