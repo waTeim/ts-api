@@ -194,17 +194,106 @@ function returnAtom(typeDesc:any) {
   return res;
 }
 
+function updateExplicitStatus(res:any,statusCode:string,componentType:any) {
+  let content = returnAtom(componentType);
+  
+  if(content != null) {
+    let n = parseInt(statusCode);
+    let description;
+
+    switch(n) {
+       case 200: description = "OK"; break;
+       case 201: description = "Created"; break;
+       case 202: description = "Accepted"; break;
+       case 203: description = "Non-Authoritative Information"; break;
+       case 204: description = "No Content"; break;
+       case 205: description = "Reset Content"; break;
+       case 206: description = "Partial Content"; break;
+       case 207: description = "Multi Status"; break;
+       case 208: description = "Already Reported"; break;
+       case 226: description = "IM Used"; break;
+       case 300: description = "Multiple Choices"; break;
+       case 302: description = "Found"; break;
+       case 303: description = "See Other"; break;
+       case 304: description = "Not Modified"; break;
+       case 305: description = "Use Proxy"; break;
+       case 306: description = "Switch Proxy"; break;
+       case 307: description = "Temporary Redirect"; break;
+       case 308: description = "Permanent Redirect"; break;
+       case 400: description = "Bad Request"; break;
+       case 401: description = "Unauthorized"; break;
+       case 402: description = "Payment Required"; break;
+       case 403: description = "Forbidden"; break;
+       case 404: description = "Not Found"; break;
+       case 405: description = "Method Not Allowed"; break;
+       case 406: description = "Not Acceptable"; break;
+       case 407: description = "Proxy Authentication Required"; break;
+       case 408: description = "Request Timeout"; break;
+       case 409: description = "Conflict"; break;
+       case 410: description = "Gone"; break;
+       case 411: description = "Length Required"; break;
+       case 412: description = "Precondition Failed"; break;
+       case 413: description = "Payload Too Large"; break;
+       case 414: description = "URI Too Long"; break;
+       case 415: description = "Unsupported Media Type"; break;
+       case 416: description = "Range Not Satisfiable"; break;
+       case 417: description = "Expectation Failed"; break;
+       case 418: description = "I'm a teapot"; break;
+       case 421: description = "Misdirected Request"; break;
+       case 422: description = "Unprocessable Entity"; break;
+       case 423: description = "Locked"; break;
+       case 424: description = "Failed Dependency"; break;
+       case 426: description = "Upgrade Required"; break;
+       case 428: description = "Precondition Required"; break;
+       case 429: description = "Too Many Request"; break;
+       case 431: description = "Request Header Fields Too Large"; break;
+       case 451: description = "Unavailable For Legal Reasons"; break;
+       case 500: description = "Internal Server Error"; break;
+       case 501: description = "Not Implemented"; break;
+       case 502: description = "Bad Gateway"; break;
+       case 503: description = "Service Unavailable"; break;
+       case 504: description = "Gateway Timeout"; break;
+       case 505: description = "HTTP Version Not Supported"; break;
+       case 506: description = "Variant Also Negotiates"; break;
+       case 507: description = "Insufficient Storage"; break;
+       case 508: description = "Loop Detected"; break;
+       case 510: description = "Not Extended"; break;
+       case 511: description = "Network Authentication Required"; break;
+       default: description = "Unknown"; break;
+    }
+    res[statusCode] = { description:description, content:content };
+  }
+  else res["204"] = { description:"No Content" };
+  return res;
+}
 
 function explicitStatus(returnTypeDesc:any) {
   let res = {};
- 
   let statusCodeDesc = (<any>returnTypeDesc).typeArguments[0];
-  let statusCode = checker.getTypeFromTypeNode(statusCodeDesc).value;
-  let resReturnType = (<any>returnTypeDesc).typeArguments[1];
-  let content = returnAtom(resReturnType);
 
-  if(content != null) res[statusCode] = { description:"Successful response", content:content };
-  else res["204"] = { description:"Successful response" };
+  switch(statusCodeDesc.kind) {
+    case ts.SyntaxKind.LiteralType: 
+    {
+      let statusCode = checker.getTypeFromTypeNode(statusCodeDesc).value;
+      let componentType = (<any>returnTypeDesc).typeArguments[1];
+
+      updateExplicitStatus(res,statusCode,componentType);
+    }
+    break;
+    case ts.SyntaxKind.UnionType:
+    {
+      let unionDesc = <ts.UnionTypeNode>statusCodeDesc;
+
+      for(let i = 0;i < unionDesc.types.length;i++) {
+        let statusCode = checker.getTypeFromTypeNode(unionDesc.types[i]).value;
+        let componentType = (<any>returnTypeDesc).typeArguments[1];
+
+        updateExplicitStatus(res,statusCode,componentType);
+      }
+    }
+    break;
+  }
+
   return res;
 }
 
@@ -299,11 +388,27 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
         for(let statusCode in resX) res[statusCode] = resX[statusCode];
       }
       else {
-        let content = returnAtom(returnTypeDesc);
+        if(returnTypeDesc.kind == ts.SyntaxKind.TypeReference) {
+          let decl = symtabGet(returnTypename).decl;
 
-        if(content != null)
-          res["200"] = { description:"Successful response", content:content };
-        else res["204"] = { description:"Successful response" };
+          if(decl.type) {
+            returnTypeDesc = decl.type;
+            returnTypename = getIndex(returnTypeDesc);
+          }
+        }
+
+        if(isExplicitStatus(returnTypename)) {
+          let resX:any = explicitStatus(returnTypeDesc);
+      
+          for(let statusCode in resX) res[statusCode] = resX[statusCode];
+        }
+        else {
+          let content = returnAtom(returnTypeDesc);
+
+          if(content != null)
+            res["200"] = { description:"Successful response", content:content };
+          else res["204"] = { description:"Successful response" };
+        }
       }
     }
   }

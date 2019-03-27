@@ -214,13 +214,22 @@ function isMagic(typeDesc:any) {
   let isUnion = typeDesc.kind == ts.SyntaxKind.UnionType;
 
   if(!isUnion && typeDesc.kind == ts.SyntaxKind.TypeAliasDeclaration) {
-    let alias = <ts.TypeAliasDeclaration>typeDesc;
+    while(typeDesc.kind == ts.SyntaxKind.TypeAliasDeclaration) {
+      let alias = symtabGet(typeName).decl;
 
-    if(alias.type) {
-      isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
-      if(isUnion) typeDesc = alias.type;
+      if(alias.type) {
+        typeDesc = alias.type;
+        isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
+      }
+      else break;
+      if(isUnion) break;
+
+      let typename = getIndex(typeDesc);
+
+      if(isExplicitStatus(typename)) return true;
     }
   }
+
   if(!isUnion) return false;
 
   let unionDesc = <ts.UnionTypeNode>typeDesc;
@@ -285,6 +294,8 @@ export function symtabToSchemaDefinitions(schemaNamespace:string,docRoot:string,
         }
         else if(decl.type != null) {
           let options = { schemaNamespace:schemaNamespace, docRoot:docRoot };
+
+console.log("srid = ",schemaRefId);
 
           for(let option in expandOptions) options[option] = expandOptions[option];
           res[schemaRefId] = typeToJSON(decl.type,sentry.jsDoc,{ enclosedBy:skey, options:options });
