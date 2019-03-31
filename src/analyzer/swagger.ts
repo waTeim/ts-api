@@ -91,8 +91,13 @@ function genSwaggerRequestParameters(router:Router,controller:Controller,method:
         }
       }
     }
-    else if(!isURLParam(parameter.id,router,controller,methodPathDecomposition))
-      parameters.push({ name:parameter.id, in:"query", schema:parameterTypedef, required:parameterTypedef.required });
+    else if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
+      let parmDesc:any = { name:parameter.id, in:"query", schema:parameterTypedef };
+
+      if(parameterTypedef.required.length > 0) parmDesc.required = parameterTypedef.required;
+
+      parameters.push(parmDesc);
+    }
   }
   return parameters;
 }
@@ -108,8 +113,8 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let parameterTypedefEx:any = typeToJSON(parameter.type,jsDoc,{ expandRefs:true, schemaNamespace:"swagger", docRoot:"#/components/schemas" });
 
     if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
-      parameters.push({ name:parameter.id, required:parameterTypedef.required, schema:parameterTypedef });
-      parametersEx.push({ name:parameter.id, required:parameterTypedefEx.required, schema:parameterTypedefEx });
+      parameters.push({ name:parameter.id, required:parameter.required, schema:parameterTypedef });
+      parametersEx.push({ name:parameter.id, required:parameter.required, schema:parameterTypedefEx });
     }
   }
   if(parameters.length == 1) {
@@ -125,13 +130,11 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
       }
     }
     if(encodingPopulated) formContent["encoding"] = encoding;
-    return { 
-      required:parameters[0].required, 
-      content:{ 
-        "application/json":jsonContent,
-        "application/x-www-form-urlencoded":formContent
-      }
-    };
+
+    let res:any = { content:{ "application/json":jsonContent, "application/x-www-form-urlencoded":formContent }};
+
+    if(parameters[0].required.length != 0) res.required = parameters[0].required;
+    return res;
   }
   else if(parameters.length > 1) {
     let methodName = method.name;
@@ -139,7 +142,7 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let properties = {};
     let required = [];
     let notAllOptional = false;
-    let inline = { type:"object", properties:properties, required:required };
+    let inline:any = { type:"object", properties:properties };
     let encoding = {};
     let encodingPopulated = false;
 
@@ -159,7 +162,11 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let formContent = { schema:inline };
 
     if(encodingPopulated) formContent["encoding"] = encoding;
-    synthesizedTypes[rqbName] = { type:"object", properties:properties, required:required, description:`synthesized request body type for ${controller.classRef}.${methodName}` };
+    synthesizedTypes[rqbName] = { type:"object", properties:properties, description:`synthesized request body type for ${controller.classRef}.${methodName}` };
+    if(notAllOptional) {
+      synthesizedTypes[rqbName].required = required;
+      inline.required = required;
+    }
     return { 
       required:notAllOptional,
       content:{ 
