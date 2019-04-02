@@ -153,7 +153,6 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
     method: `${method.name}`,
     parameterNames: parameterNames,
     schema: {
-      //"$schema": "http://json-schema.org/draft-07/schema#",
       title: `${method.name} plist`,
       description: `Parameter list for ${method.name}`,
       type: "object",

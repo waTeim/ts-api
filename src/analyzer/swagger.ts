@@ -118,11 +118,16 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     }
   }
   if(parameters.length == 1) {
-    let jsonContent = { schema:parameters[0].schema };
-    let formContent = { schema:parametersEx[0].schema };
+    let properties = {};
+    let propertiesEx = {};
+   
+    let jsonContent = { schema:{ title: `${method.name} plist`, type:"object", properties:properties }};
+    let formContent = { schema:{ title: `${method.name} plist`, type:"object", properties:propertiesEx }};
     let encoding = {};
     let encodingPopulated = false;
 
+    properties[parameters[0].name] = parameters[0].schema;
+    propertiesEx[parametersEx[0].name] = parametersEx[0].schema;
     for(let property in parametersEx[0].schema.properties) {
       if(parametersEx[0].schema.content != "flat" && (parametersEx[0].schema.properties[property].type == "object" || parametersEx[0].schema.properties[property] == null)) {
         encoding[property] = { contentType:"application/json" };
