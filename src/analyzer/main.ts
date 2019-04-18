@@ -7,15 +7,16 @@ const tsany = ts as any;
 import { TypedId, PathDecomposition, DecoratedFunction, Controller, Router } from "./types";
 import { checker, getIndex, setChecker, symtab, symtabGet, symtabPut, typeToJSON } from "./symtab";
 import { 
-  parameterListToJSON,
-  traverseParameterList,
+  addController,
+  addRouter,
   connectMethods,
+  findRelevant,
+  genMethodEntry,
+  parameterListToJSON,
   symtabToSchemaDefinitions,
   symtabToControllerDefinitions,
   symtabToRouterDefinitions,
-  genMethodEntry,
-  addController,
-  addRouter
+  traverseParameterList
 } from "./traverse";
 import { genSwaggerPreamble, genSwaggerRootTags, genSwaggerRoutes } from "./swagger";
 import { genExpressRoutes } from "./express_routes";
@@ -78,16 +79,18 @@ function genSources(
   contents_part3 += `\nfunction compositeWithDefinitions(schema) { schema.definitions = definitions; return schema; }\n`;
   contents_part3 += `function validate(schema) { try { return ajv.compile(compositeWithDefinitions(schema)); } catch(e) { throw new Error(e); } }\n`;
 
-  for(let i = 0;i < items.length;i++) {
-    let x = <any>parameterListToJSON(items[i]);
-
-    if(x.parameterNames) x.schema.required = x.required;
-    contents_part3 += genMethodEntry(x.classRef,x.method,x.parameterNames,x.schema);
-  }
+  for(let i = 0;i < items.length;i++) findRelevant(items[i]);
 
   let definitions1 = symtabToSchemaDefinitions("check","#/definitions");
   let definitions2 = symtabToSchemaDefinitions("swagger","#/components/schemas",{ firstclassIntermediates:true });
   let synthesizedTypes = {};
+
+  for(let i = 0;i < items.length;i++) {
+    let x = <any>parameterListToJSON(items[i]);
+
+    if(x.parameterNames) x.schema.required = x.required;
+    contents_part3 += genMethodEntry(x.classRef,x.method,x.parameterNames,x.schema,x.passthrough);
+  }
 
   contents_part2 += `\n\nlet definitions = ${JSON.stringify(definitions1,null,2)}\n`;
 

@@ -121,13 +121,23 @@ function genSwaggerRequestBody(synthesizedTypes:any,router:Router,controller:Con
     let properties = {};
     let propertiesEx = {};
    
-    let jsonContent = { schema:{ title: `${method.name} plist`, type:"object", properties:properties }};
-    let formContent = { schema:{ title: `${method.name} plist`, type:"object", properties:propertiesEx }};
+    let jsonContent;
+    let formContent;
     let encoding = {};
     let encodingPopulated = false;
 
-    properties[parameters[0].name] = parameters[0].schema;
-    propertiesEx[parametersEx[0].name] = parametersEx[0].schema;
+
+    if(parameters[0].schema['$ref'] != null) {
+      jsonContent = { schema:parameters[0].schema };
+      formContent = { schema:parametersEx[0].schema };
+    }
+    else {
+      jsonContent = { schema:{ title: `${method.name} plist`, type:"object", properties:properties }};
+      formContent = { schema:{ title: `${method.name} plist`, type:"object", properties:propertiesEx }};
+      properties[parameters[0].name] = parameters[0].schema;
+      propertiesEx[parametersEx[0].name] = parametersEx[0].schema;
+    }
+
     for(let property in parametersEx[0].schema.properties) {
       if(parametersEx[0].schema.content != "flat" && (parametersEx[0].schema.properties[property].type == "object" || parametersEx[0].schema.properties[property] == null)) {
         encoding[property] = { contentType:"application/json" };

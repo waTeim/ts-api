@@ -112,6 +112,16 @@ export function synthesizeParameterJSDoc(parm:TypedId) {
   return jsDoc;
 }
 
+export function findRelevant(method: DecoratedFunction,options?:any) {
+  markAsRelevant(method.returnType,null,options);
+
+  for(let i = 0;i < method.methodParameters.length;i++) {
+    let x = typeToJSON(method.methodParameters[i].type,null,options);
+
+    if(x != null) markAsRelevant(method.methodParameters[i].type,null,options);
+  }
+}
+
 /**
  * This function constructs the JSON schema corresponding to the method parameter
  * list. This is accomplished by contstructing the schema corresponding to a virtual
@@ -130,28 +140,59 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
   let props = {};
   let parameterNames = [];
   let required = [];
+  let passthrough = false;
 
-  for(let i = 0;i < method.methodParameters.length;i++) {
-    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
-    let jsonValue = typeToJSON(method.methodParameters[i].type,jsDoc,options);
+  if(method.methodParameters.length == 1) {
+    let jsDoc = synthesizeParameterJSDoc(method.methodParameters[0]);
+
+    let jsonValue:any = typeToJSON(method.methodParameters[0].type,jsDoc,options);
 
     if(jsonValue) {
-      props[method.methodParameters[i].id] = jsonValue;
-      markAsRelevant(method.methodParameters[i].type,null,options);
+      let augmentedOptions = { expandRefs:true };
+
+      for(let key in options) {
+        if(key != "expandRefs") augmentedOptions = options[key];
+      }
+
+      jsonValue = typeToJSON(method.methodParameters[0].type,jsDoc,augmentedOptions);
+
+      if(jsonValue.type == "object") {
+        for(let p in jsonValue.properties) {
+          props[p] = jsonValue.properties[p];
+          parameterNames.push(p);
+        }
+        required = jsonValue.required;
+        passthrough = true;
+      }
+      else {
+        let parameterName = method.methodParameters[0].id;
+
+        props[parameterName] = jsonValue;
+        parameterNames.push(parameterName);
+        if(parameterName) required.push(parameterName);
+      }
     }
   }
-  markAsRelevant(method.returnType,null,options);
-  for(let i = 0;i < method.methodParameters.length;i++) {
-    let parameterName = method.methodParameters[i].id;
+  else {
+    for(let i = 0;i < method.methodParameters.length;i++) {
+      let jsDoc = synthesizeParameterJSDoc(method.methodParameters[i]);
+      let jsonValue = typeToJSON(method.methodParameters[i].type,jsDoc,options);
 
-    parameterNames.push(parameterName);
-    if(method.methodParameters[i].required) required.push(parameterName);
+      if(jsonValue) props[method.methodParameters[i].id] = jsonValue;
+    }
+    for(let i = 0;i < method.methodParameters.length;i++) {
+      let parameterName = method.methodParameters[i].id;
+
+      parameterNames.push(parameterName);
+      if(method.methodParameters[i].required) required.push(parameterName);
+    }
   }
 
   let res:any = {
     classRef: `${method.classRef}`,
     method: `${method.name}`,
     parameterNames: parameterNames,
+    passthrough:passthrough,
     schema: {
       title: `${method.name} plist`,
       description: `Parameter list for ${method.name}`,
@@ -438,13 +479,16 @@ export function isURLParam(id:string,router:Router,controller:Controller,methodP
  *
  * @param {any} parameterNames the list of paremter names.
  */
-function genArgsToSchema(parameterNames: any): string {
+function genArgsToSchema(parameterNames: any,passthrough:boolean): string {
   let s = '';
 
   s += `function(a) {\n`;
-  s += `    let o = {};\n\n`;
-  for(let i = 0;i < parameterNames.length;i++) {
-     s += `    o['${parameterNames[i]}'] = a[${i}];\n`;
+  if(passthrough) s += `    let o = a[0];\n`;
+  else {
+    s += `    let o = {};\n\n`;
+    for(let i = 0;i < parameterNames.length;i++) {
+      s += `    o['${parameterNames[i]}'] = a[${i}];\n`;
+    }
   }
   s += `    return o;\n  }`;
   return s;
@@ -459,13 +503,16 @@ function genArgsToSchema(parameterNames: any): string {
  *
  * @param {any} parameterNames the list of paremter names.
  */
-function genSchemaToArgs(parameterNames: any): string {
+function genSchemaToArgs(parameterNames: any,passthrough:boolean): string {
   let s = '';
 
   s += `function(o) {\n`;
-  s += `    let a = [];\n\n`;
-  for(let i = 0;i < parameterNames.length;i++) {
-     s += `    a[${i}] = o['${parameterNames[i]}'];\n`;
+  if(passthrough) s += `    let a = [o];\n\n`;
+  else {
+    s += `    let a = [];\n\n`;
+    for(let i = 0;i < parameterNames.length;i++) {
+       s += `    a[${i}] = o['${parameterNames[i]}'];\n`;
+    }
   }
   s += `    return a;\n  }`;
   return s;
@@ -482,14 +529,27 @@ function genSchemaToArgs(parameterNames: any): string {
  * @param parameterNames list of each formal parameter to the method.
  * @param schema the JSON schema of all of the relevant type definitions.
  */
-export function genMethodEntry(classRef,methodName,parameterNames,schema): string {
+export function genMethodEntry(classRef,methodName,parameterNames,schema,passthrough:boolean): string {
   let s = `\nexports["${classRef}.${methodName}"] = {\n`;
+
+  if(schema.type == "object") {
+    let numParameters = 0; 
+    let child;
+    let childName;
+
+    for(let p in schema.properties) {
+      child = schema.properties[p];
+      childName = p;
+      numParameters++;
+    }
+  }
+
   let schemaFormatted = JSON.stringify(schema,null,2);
 
   schemaFormatted = schemaFormatted.replace(/\n/g,"\n  ");
   s += `  schema:compositeWithDefinitions(${schemaFormatted}),\n`;
-  s += `  argsToSchema:${genArgsToSchema(parameterNames)},\n`;
-  s += `  schemaToArgs:${genSchemaToArgs(parameterNames)},\n`;
+  s += `  argsToSchema:${genArgsToSchema(parameterNames,passthrough)},\n`;
+  s += `  schemaToArgs:${genSchemaToArgs(parameterNames,passthrough)},\n`;
   s += `  validate:validate(${schemaFormatted})\n`;
   s += `};\n`;
   return s;
