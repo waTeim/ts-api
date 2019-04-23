@@ -255,9 +255,13 @@ function isMagic(typeDesc:any) {
 
   if(!isUnion && typeDesc.kind == ts.SyntaxKind.TypeAliasDeclaration) {
     while(typeDesc.kind == ts.SyntaxKind.TypeAliasDeclaration) {
-      let alias = symtabGet(typeName).decl;
+      let componentDesc = symtabGet(typeName);
 
-      if(alias.type) {
+      if(componentDesc == null) break;
+
+      let alias = componentDesc.decl;
+
+      if(alias.type != null) {
         typeDesc = alias.type;
         isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
       }
@@ -290,7 +294,7 @@ export function isExplicitStatus(index) {
   return false;
 }
 
-function isFileReturn(index) {
+export function isFileReturn(index) {
   if(typeof index == "string") return index == "FileRef";
   else if(index.local == "FileRef" && index.module.match(/.*ts-api.*/)) return true;
   return false;

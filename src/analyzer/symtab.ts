@@ -8,6 +8,17 @@ let schemaRefIds:any = {};
 let numIntermediates = 0;
 let checker;
 
+function getSourceContext(n:ts.Node) {
+  let start = n;
+
+  while(n != null && n.parent != null && n.parent.kind != ts.SyntaxKind.SourceFile) n = n.parent;
+  if(n != null && n.parent != null) {
+    let loc = ts.getLineAndCharacterOfPosition((<ts.SourceFile>n.parent),(<ts.Node>start).pos);
+
+    return { fileName:(<ts.SourceFile>n.parent).fileName, lineNumber:loc.line };
+  }
+}
+
 function setChecker(program) {
   checker = program.getTypeChecker();
 }
@@ -91,11 +102,18 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     case ts.SyntaxKind.ObjectKeyword: res = { type:"object" }; break;
     case ts.SyntaxKind.FunctionType: break;
     case ts.SyntaxKind.VoidKeyword: res = { type:"null" }; break;
+    case ts.SyntaxKind.NeverKeyword: break;
     break;
     default: unknown = true; break;
   }
-  if(unknown) throw(`cannot convert unknown token (${o.kind}) to JSON`);
-  else return res;
+  if(unknown) {
+    let sc = getSourceContext(o);
+
+    if(sc != null) 
+      throw(`cannot convert unknown token (${o.kind}) to JSON\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+    throw(`cannot convert unknown token (${o.kind}) to JSON`);
+  }
+  return res;
 }
 
 /**
@@ -181,7 +199,11 @@ function literalToJSON(typeDesc:any,jsDoc:any):Object {
 
   if(literal == "false" || literal == "true") return { type:"boolean" };
 
-  throw("unknown literal type (" + literal + ")");
+  let sc = getSourceContext(typeDesc);
+
+  if(sc != null)
+    throw(`unknown literal type (${literal})\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+  throw(`unknown literal type (${literal})`);
 }
 
 function typeliteralToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
@@ -469,7 +491,16 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
           if(res != null && res['$ref'] != null && context != null && context.options != null && context.options.expandRefs) {
             let sentry:any = symtabGet(index);
 
-            if(sentry == null) throw(`undefined type reference ${index}`);
+            if(sentry == null) {
+              let sc = getSourceContext(typeDesc);
+
+              if(sc != null) {
+                let _a:any = null;
+                console.log(_a.b);
+                throw(`undefined type reference ${index}\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+              }
+              throw(`undefined type reference ${index}`);
+            }
             res = sentry.schema[schemaNamespace];
           }
         }
@@ -498,10 +529,22 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
       case ts.SyntaxKind.IndexedAccessType: res = indexedAccessTypeToJSON(typeDesc,jsDoc,context); break;
       default: unknown = true; break;
     }
-    if(unknown) throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
+    if(unknown) {
+      let sc = getSourceContext(typeDesc);
+
+      if(sc != null)
+        throw(`cannot convert unknown type (${typeDesc.kind}) to JSON\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+      throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
+    }
   }
   else if(typeDesc.constructor.name == 'TokenObject') res = tokenObjectToJSON(typeDesc,jsDoc);
-  else throw(`unknown type (${typeDesc.constructor.name})`);
+  else {
+    let sc = getSourceContext(typeDesc);
+
+    if(sc != null)
+      throw(`unknown type (${typeDesc.constructor.name})\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+    throw(`unknown type (${typeDesc.constructor.name})`);
+  }
 
   if(res) {
     let symbol = type.symbol;

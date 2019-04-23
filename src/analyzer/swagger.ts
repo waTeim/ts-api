@@ -4,7 +4,7 @@ const tsany = ts as any;
 
 import { TypedId, PathDecomposition, DecoratedFunction, Controller, Router } from "./types";
 import { checker, getIndex, symtabGet, symtabPut, typeToJSON } from "./symtab";
-import { synthesizeParameterJSDoc, isExplicitStatus, decomposePath, decompositionToPath, isURLParam } from "./traverse";
+import { synthesizeParameterJSDoc, isExplicitStatus, isFileReturn, decomposePath, decompositionToPath, isURLParam } from "./traverse";
 
 /**
  * Create the hardcoded first part of a swagger doc.  Global documentation derived from the
@@ -358,6 +358,13 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
       let resX:any = explicitStatus(returnTypeDesc);
 
       for(let statusCode in resX) res[statusCode] = resX[statusCode];
+    }
+    else if(isFileReturn(returnTypename)) {
+      let content = returnAtom(returnTypeDesc);
+
+      if(content != null)
+        res["200"] = { description:"Successful response", content:content };
+      else res["204"] = { description:"Successful response" };
     }
     else {
       let isUnion = returnTypeDesc.kind == ts.SyntaxKind.UnionType;
