@@ -95,7 +95,7 @@ function tokenObjectToJSON(o:any,jsDoc:any) {
     }
     break;
     case ts.SyntaxKind.BooleanKeyword: res =  { type:"boolean" }; break;
-    case ts.SyntaxKind.AnyKeyword: res = { anyOf:[ { type:"object" }, { type:"number" }, { type:"string" }]}; break;
+    case ts.SyntaxKind.AnyKeyword: res = { anyOf:[ { type:"array" }, { type:"object" }, { type:"number" }, { type:"string" }]}; break;
     case ts.SyntaxKind.NullKeyword: res = { type:"null" }; break;
     case ts.SyntaxKind.UndefinedKeyword: break;
     case ts.SyntaxKind.SymbolKeyword: break;
