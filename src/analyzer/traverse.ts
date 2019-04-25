@@ -295,6 +295,7 @@ export function isExplicitStatus(index) {
 }
 
 export function isFileReturn(index) {
+  if(index == null) return false;
   if(typeof index == "string") return index == "FileRef";
   else if(index.local == "FileRef" && index.module.match(/.*ts-api.*/)) return true;
   return false;
