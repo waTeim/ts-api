@@ -201,7 +201,7 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
     }
   };
 
-  if(required.length > 0) res.required = required;
+  if(required != null && required.length > 0) res.required = required;
   return res;
 }
 
