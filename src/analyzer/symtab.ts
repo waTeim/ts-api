@@ -519,6 +519,7 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
       case ts.SyntaxKind.TypeQuery: /* console.log(`ignoring type query ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.ParenthesizedType: /* console.log(`ignoring paranthesized type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.IndexSignature: /* console.log(`ignoring index signature ${checker.typeToString(type)}`); */ break;
+      case ts.SyntaxKind.TypeOperator: /* console.log(`ignoring type operator ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.UnionType: res = unionToJSON(typeDesc,jsDoc,context); break;
       case ts.SyntaxKind.LiteralType: res = literalToJSON(typeDesc,jsDoc); break;
       case ts.SyntaxKind.IntersectionType: res = intersectionToJSON(typeDesc,jsDoc,context); break;
