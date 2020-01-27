@@ -1,6 +1,6 @@
 {
   "name": "ts-api",
-  "version": "3.3.1",
+  "version": "3.4.0",
   "description": "Create documented REST API using controllers and interfaces in typescript",
   "main": "dist",
   "types": "dist",
@@ -9,7 +9,7 @@
     "url": "git@github.com:waTeim/ts-api.git"
   },
   "dependencies": {
-    "@types/node": "^8.10.0",
+    "@types/node": "^13.5.0",
     "@types/swagger-ui-express": "^3.0.0",
     "ajv": "^6.8.1",
     "bluebird": "^3.5.1",
@@ -21,7 +21,7 @@
     "mkdirp": "^0.5.1",
     "reflect-metadata": "^0.1.12",
     "swagger-ui-express": "^4.0.1",
-    "typescript": "^3.5",
+    "typescript": "3.7.5",
     "uuid": "^3.3.2"
   },
   "scripts": {

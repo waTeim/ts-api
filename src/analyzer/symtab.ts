@@ -221,7 +221,11 @@ function typeliteralToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
       properties[propertyName] = typeToJSON(element,null,context);
       if(element.questionToken == null) required.push(propertyName);
     }
-    else elements.push(typeToJSON(element,null,context));
+    else {
+      let j = typeToJSON(element,null,context);
+ 
+      if(j != null) elements.push(j);
+    }
   }
   if(Object.keys(properties).length > 0 && elements.length == 0) {
     if(context != null && context.options != null && context.options.firstclassIntermediates) {
@@ -244,10 +248,16 @@ function typeliteralToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   else if(elements.length != 0 && Object.keys(properties).length == 0) {
     return { anyOf:elements };
   }
+  else if(elements.length == 0 && Object.keys(properties).length == 0) {
+    return { type: "object", properties:[] };
+  }
   else {
     let type = checker.getTypeFromTypeNode(typeDesc);
     let literal = checker.typeToString(type);
-
+    let sc = getSourceContext(typeDesc);
+     
+    if(sc != null)
+      throw(`unable to map typeliteral containing both named and unnamed elements ${literal}\n file = ${sc.fileName} line = ${sc.lineNumber}`);
     throw(`unable to map typeliteral containing both named and unnamed elements ${literal}`);
   }
 }
@@ -514,6 +524,8 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
         else res = null;
       }
       break;
+      case ts.SyntaxKind.CallSignature: /* console.log(`ignoring call signature type ${checker.typeToString(type)}`); */ break;
+      case ts.SyntaxKind.MethodSignature: /* console.log(`ignoring method signature type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.FunctionType: /* console.log(`ignoring function type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.ConstructorType: /* console.log(`ignoring constructor type ${checker.typeToString(type)}`); */ break;
       case ts.SyntaxKind.TypeQuery: /* console.log(`ignoring type query ${checker.typeToString(type)}`); */ break;
@@ -533,8 +545,15 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
     if(unknown) {
       let sc = getSourceContext(typeDesc);
 
-      if(sc != null)
+      if(sc != null) {
+        /* Useful to debug never before seen types, usually not interesting enough to leave it in for users
+          
+        let uType = checker.getTypeFromTypeNode(typeDesc);
+        let typeText = checker.typeToString(uType);
+        console.log(typeText);
+        */
         throw(`cannot convert unknown type (${typeDesc.kind}) to JSON\n file = ${sc.fileName} line = ${sc.lineNumber}`);
+      }
       throw(`cannot convert unknown type (${typeDesc.kind}) to JSON`); 
     }
   }
