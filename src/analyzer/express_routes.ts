@@ -187,7 +187,7 @@ export function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,con
   let resolvedRoot;
   let controllerIndex = {};
 
-  if(srcRoot != null) resolvedRoot = path.resolve(srcRoot);
+  if(srcRoot != null) resolvedRoot = path.resolve(srcRoot).replace(/\\/g, '/');
 
   output += `const express = require('express');\n`;
   output += `const api = require('ts-api');\n`;
@@ -199,7 +199,7 @@ export function genExpressRoutes(endpoints:DecoratedFunction[],router:Router,con
   // Generate requires for controller classes.  Use parser support for
   // the file they are defined in to provide the parameter for require.
   for(let i = 0;i < controllers.length;i++) {
-    let fileName = path.resolve(controllers[i].fileName);
+    let fileName = path.resolve(controllers[i].fileName).replace(/\\/g, '/');
 
     if(srcRoot != null) {
       fileName = fileName.replace(resolvedRoot + '/','');
