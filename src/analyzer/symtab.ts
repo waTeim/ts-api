@@ -291,14 +291,18 @@ function mappedTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
   let constraint = ts.getEffectiveConstraintOfTypeParameter(mapDesc.typeParameter);
   let res;
 
-  //console.log("next: ",typeDesc.nextContainer.type);
-  let type = checker.getTypeFromTypeNode(typeDesc.nextContainer.type);
-  let types = checker.typeToString(type);
-  //console.log("subordinate type: ",types);
-  //console.log("constraint: ",constraint);
-  //console.log("desc: ",typeDesc);
-  
-  return typeToJSON(typeDesc.nextContainer.type,jsDoc,context);
+  if (typeDesc.nextContainer) {
+    //console.log("next: ",typeDesc.nextContainer.type);
+    let type = checker.getTypeFromTypeNode(typeDesc.nextContainer.type);
+    let types = checker.typeToString(type);
+    //console.log("subordinate type: ",types);
+    //console.log("constraint: ",constraint);
+    //console.log("desc: ",typeDesc);
+
+    return typeToJSON(typeDesc.nextContainer.type,jsDoc,context);
+  }
+
+  return {};  
 }
 
 function conditionalTypeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
