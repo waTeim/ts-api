@@ -94,7 +94,7 @@ function genSwaggerRequestParameters(router:Router,controller:Controller,method:
     else if(!isURLParam(parameter.id,router,controller,methodPathDecomposition)) {
       let parmDesc:any = { name:parameter.id, in:"query", schema:parameterTypedef };
 
-      if(parameterTypedef.required.length > 0) parmDesc.required = parameterTypedef.required;
+      if(parameterTypedef.required != null && parameterTypedef.required.length > 0) parmDesc.required = parameterTypedef.required;
 
       parameters.push(parmDesc);
     }
