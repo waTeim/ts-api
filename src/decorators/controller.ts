@@ -11,10 +11,13 @@ export default function controller(path: string) {
     var original = target;
 
     var f:any = function(...args) {
-      this.path = path;
-      if(this.path.charAt(0) != '/') this.path = '/' + this.path;
-      if(this.path.charAt(this.path.length - 1) == '/') this.path = this.path.substring(0,this.path.length - 1);
-      return original.apply(this, args)
+      let newPath = path;
+      if(newPath.charAt(0) != '/') newPath = '/' + newPath;
+      if(newPath.charAt(newPath.length - 1) == '/') newPath = newPath.substring(0,newPath.length - 1);
+
+      const result = new original(...args);
+      result.path = newPath;
+      return result;
     }
 
     // copy prototype so intanceof operator still works

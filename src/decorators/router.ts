@@ -11,11 +11,13 @@ export default function router(prefix: string) {
     var original = target;
 
     var f:any = function(...args) {
-      if(prefix != null) this.prefix = prefix;
-      else this.prefix = '';
-      if(this.prefix.charAt(0) != '/') this.prefix = '/' + this.prefix;
-      if(this.prefix.charAt(this.prefix.length - 1) == '/') this.prefix = this.prefix.substring(0,this.prefix.length - 1);
-      return original.apply(this,args);
+      let newPrefix = prefix || '';
+      if(newPrefix.charAt(0) != '/') newPrefix = '/' + newPrefix;
+      if(newPrefix.charAt(newPrefix.length - 1) == '/') newPrefix = newPrefix.substring(0,newPrefix.length - 1);
+
+      const result = new original(...args);
+      result.prefix = newPrefix;
+      return result;
     }
 
     // copy prototype so intanceof operator still works
