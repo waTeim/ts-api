@@ -123,6 +123,10 @@ You can verify output by using the hosted docs.  The route will depend on where 
 
 http://localhost:3002/api/docs
  
+## Development
+
+Run `npm test` to execute the Mocha suite. The new integration harness boots the example service sources through the analyzer and currently asserts on the known `undefined type unknown in relevancy tree` failure so that we have a regression target while updating the generator.
+
 ## License
 
 [Apache 2.0](LICENSE)    

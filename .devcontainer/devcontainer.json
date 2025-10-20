@@ -1,0 +1,49 @@
+{
+  "name": "ts-api (devcontainer)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+      "nodeGypDependencies": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "NPM_CONFIG_FUND": "false",
+    "NPM_CONFIG_AUDIT": "false"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-typescript-next",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "redhat.vscode-yaml",
+        "openai.chatgpt"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "eslint.format.enable": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "remote.extensionKind": { "openai.chatgpt": "workspace" },
+      }
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "updateRemoteUserUID": true,
+  "runArgs": [
+    "--init",
+    "--env-file", "${localWorkspaceFolder}/.devcontainer/local.env"
+  ],
+  "forwardPorts": [1455],
+  "portsAttributes": {
+    "1455": { "onAutoForward": "openBrowser", "protocol": "http", "localPort": 1455 }
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer/codex,target=/home/vscode/.codex,type=bind,consistency=cached"
+  ]
+}
