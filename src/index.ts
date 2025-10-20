@@ -1,4 +1,4 @@
-import * as swaggerUi from 'swagger-ui-express';
+import * as swaggerUi from 'swagger-ui-express/index.js';
 import * as serveStatic from 'serve-static';
 export { default as ControllerBase } from "./ControllerBase";
 export { default as ControllerProperties } from "./ControllerProperties";
