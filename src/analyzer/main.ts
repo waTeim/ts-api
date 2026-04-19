@@ -282,7 +282,7 @@ export function generate(
               }
             }
 
-            methodParameters = traverseParameterList((<any>typeNode).parameters,decoratorMeta);
+            methodParameters = traverseParameterList((<any>typeNode).parameters,decoratorMeta,parmContext);
             functionName = (<any>parent.name).text;
             doRuntimeCheck = true;
           }

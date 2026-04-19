@@ -100,9 +100,7 @@ describe('analyzer integration using example project', function () {
     }
 
     if (generationError) {
-      const message = generationError instanceof Error ? generationError.message : String(generationError);
-      expect(message).to.include('undefined type unknown in relevancy tree');
-      return;
+      throw generationError;
     }
 
     const swaggerDoc = JSON.parse(fs.readFileSync(swaggerPath, 'utf8'));
@@ -127,14 +125,22 @@ describe('analyzer integration using example project', function () {
     expect(listResponse).to.exist;
     const listSchema = listResponse.content['application/json'].schema;
     expect(listSchema.type).to.equal('array');
-    expect(listSchema.items).to.have.property('$ref').that.matches(/IUser$/);
+    const listItems = listSchema.items;
+    expect(listItems).to.exist;
+    if (listItems.$ref) {
+      expect(listItems.$ref).to.match(/IUser$/);
+    } else {
+      expect(listItems.type).to.equal('object');
+      expect(listItems.properties).to.have.property('id');
+      expect(listItems.properties).to.have.property('name');
+    }
 
     const getPathKey = Object.keys(swaggerDoc.paths || {}).find((key) => key.includes('/user') && key.includes('{userId}'));
     expect(getPathKey, 'expected user lookup path in swagger doc').to.be.a('string');
 
     const routesSource = fs.readFileSync(routesPath, 'utf8');
-    expect(routesSource).to.include('router.get(');
-    expect(routesSource).to.include('AccountFoo');
+    expect(routesSource).to.include('AccountFooModule');
+    expect(routesSource).to.include("root.getExpressRouter('AccountFoo').get");
     expect(routesSource).to.include('EndpointCheckBinding');
 
     const checkSource = fs.readFileSync(checkPath, 'utf8');

@@ -35,7 +35,16 @@ function symtabKeyToString(key:any) {
 function symtabGet(key:any):any {
   let s = symtabKeyToString(key);
 
-  if(s != null) return symtab[s];
+  if(s != null) {
+    let entry = symtab[s];
+    if(entry != null) return entry;
+  }
+  if(typeof key == "string") {
+    for(let skey in symtab) {
+      let entry = symtab[skey];
+      if(entry != null && entry.schemaRefId === key) return entry;
+    }
+  }
   return null;
 }
 
@@ -406,9 +415,10 @@ function getIndex(desc:ts.TypeNode|ts.Symbol) {
   
   let FQN;
   let index;
+  let typeName:any;
 
   if(isTypeNode(desc)) {
-    let typeName = (<any>desc).typeName;
+    typeName = (<any>desc).typeName;
 
     try {
       let symbol1 = checker.getSymbolAtLocation(typeName);
@@ -441,10 +451,27 @@ function getIndex(desc:ts.TypeNode|ts.Symbol) {
     if(symbol2 == null) FQN = checker.getFullyQualifiedName(desc);
     else FQN = checker.getFullyQualifiedName(symbol2);
   }
+  if((FQN == null || FQN == "unknown") && typeof typeName !== "undefined" && typeName != null) {
+    try {
+      const typeObj: any = checker.getTypeAtLocation(typeName);
+      if(typeObj != null && typeObj.symbol != null) {
+        const decls = typeObj.symbol.declarations;
+        const localName = typeObj.symbol.getName ? typeObj.symbol.getName() : (typeName.getText && typeName.getText());
+        if(decls != null && decls.length > 0 && localName != null) {
+          const sourceFile = decls[0].getSourceFile();
+          if(sourceFile != null) return { module:sourceFile.fileName, local:localName };
+        }
+      }
+    } catch(e) {}
+    const typeText = typeName.getText && typeName.getText();
+    if(typeText != null) return typeText;
+  }
   if(FQN != "__type") {
     let components = FQN.split('"');
 
-    if(components.length == 1) index = components[0];
+    if(components.length == 1) {
+      if(components[0] != "unknown") index = components[0];
+    }
     else index = { module:components[1], local:components[2].substring(1) };
   }
   return index;
@@ -484,14 +511,22 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
       case ts.SyntaxKind.TypeReference: 
       {
         let index = getIndex(typeDesc);
+        let typeArgs = (<any>typeDesc).typeArguments;
 
         if(index == "Array") {
-          let arg = (<any>typeDesc).typeArguments[0];
+          let arg = (typeArgs && typeArgs.length > 0) ? typeArgs[0] : null;
 
           res = { type:"array", items:typeToJSON(arg,jsDoc,context) }
         }
         else if(index == "Date") {
           res = { oneOf:[{ type:"string", format:"date" }, { type:"string", format:"date-time" }], toDate:true, content:"flat" };
+        }
+        else if(index == "Promise") {
+          if(typeArgs != null && typeArgs.length > 0) res = typeToJSON(typeArgs[0],jsDoc,context);
+          else res = { type:"object" };
+        }
+        else if(index == "unknown") {
+          res = {};
         }
         else {
           let name = index;
@@ -510,12 +545,12 @@ function typeToJSON(typeDesc:any,jsDoc:any,context?:any):Object {
               let sc = getSourceContext(typeDesc);
 
               if(sc != null) {
-                let _a:any = null;
-                console.log(_a.b);
+
                 throw(`undefined type reference ${index}\n file = ${sc.fileName} line = ${sc.lineNumber}`);
               }
               throw(`undefined type reference ${index}`);
             }
+            sentry.relevant = true;
             res = sentry.schema[schemaNamespace];
           }
         }

@@ -52,15 +52,27 @@
       return fs.existsSync(path.resolve(dir,"tsconfig.json"));
     });
 
-    if(rootDir == null) rootDir = process.cwd();
-    else {
-      tsconfigPath = path.resolve(rootDir,"tsconfig.json");
-      packagePath = path.resolve(rootDir,"package.json");
-    }
     if(program.root != null) {
-      rootDir = program.root;
-      if(fs.existsSync(path.resolve(dir,"tsconfig.json"))) tsconfigPath = path.resolve(rootDir,"tsconfig.json");
-      if(fs.existsSync(path.resolve(dir,"package.json"))) packagePath = path.resolve(rootDir,"package.json");
+      rootDir = path.resolve(program.root);
+      tsconfigPath = path.resolve(rootDir, "tsconfig.json");
+
+      if(!fs.existsSync(tsconfigPath)) {
+        console.error(`tsconfig.json not found under ${rootDir}.`);
+        console.error('Run cg from a TypeScript project root or pass --root pointing to one.');
+        process.exit(1);
+      }
+
+      const candidatePackage = path.resolve(rootDir, "package.json");
+      if(fs.existsSync(candidatePackage)) packagePath = candidatePackage;
+    }
+    else if(rootDir != null) {
+      tsconfigPath = path.resolve(rootDir, "tsconfig.json");
+      const candidatePackage = path.resolve(rootDir, "package.json");
+      if(fs.existsSync(candidatePackage)) packagePath = candidatePackage;
+    }
+    else {
+      console.error('Unable to locate tsconfig.json. Run cg from a TypeScript project root or pass --root.');
+      process.exit(1);
     }
 
     if(tsconfigPath != null) {
@@ -76,7 +88,7 @@
         if(meta != null && meta.include != null) tsInclude = meta.include;
       }
       catch(e) {
-        console.err(`could not parse ${tsconfigPath}: ${e.what()}`);
+        console.error(`could not parse ${tsconfigPath}: ${e && e.message ? e.message : e}`);
       }
     }
 
@@ -89,7 +101,7 @@
         if(meta != null && meta.name != null) packageName = meta.name;
       }
       catch(e) {
-        console.err(`could not parse ${packagePath}: ${e.what()}`);
+        console.error(`could not parse ${packagePath}: ${e && e.message ? e.message : e}`);
       }
     }
 

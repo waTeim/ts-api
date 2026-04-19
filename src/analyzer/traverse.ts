@@ -50,15 +50,39 @@ function markIntersectionAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
 function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
   if(typeDesc.constructor.name == 'NodeObject') {
     switch(typeDesc.kind) {
-      case ts.SyntaxKind.ArrayType: markAsRelevant(typeDesc.elementType,jsDoc,options); break;
+      case ts.SyntaxKind.ArrayType:
+        markAsRelevant(typeDesc.elementType,jsDoc,options);
+        break;
       case ts.SyntaxKind.TypeReference:
       {
         let alias = <ts.TypeAliasDeclaration>typeDesc;
         let index = getIndex(typeDesc);
         let args = (<any>typeDesc).typeArguments;
+
+        if(typeof index === "string") {
+          if(index === "Promise") {
+            if(args != null) {
+              for(let i = 0;i < args.length;i++) markAsRelevant(args[i],jsDoc,options);
+            }
+            return;
+          }
+        }
         let ref:any = symtabGet(index);
 
         if(ref == null) {
+          try {
+            const typeObj = checker.getTypeFromTypeNode(<ts.TypeNode>typeDesc);
+            if(typeObj != null) {
+              const flags = (<any>typeObj).flags;
+              if(flags != null) {
+                if((flags & ts.TypeFlags.Unknown) !== 0) return;
+                if((flags & ts.TypeFlags.Any) !== 0) return;
+              }
+            }
+          }
+          catch(e) {
+            // Ignore; fall through to existing error for other cases
+          }
           throw(`undefined type ${index} in relevancy tree`);
         }
         ref.relevant = true;
@@ -78,9 +102,14 @@ function markAsRelevant(typeDesc:any,jsDoc:any,options?:any) {
         }
       }
       break;
-      case ts.SyntaxKind.UnionType: markUnionAsRelevant(typeDesc,jsDoc,options); break;
-      case ts.SyntaxKind.IntersectionType: markIntersectionAsRelevant(typeDesc,jsDoc,options); break;
-      default: break;
+      case ts.SyntaxKind.UnionType:
+        markUnionAsRelevant(typeDesc,jsDoc,options);
+        break;
+      case ts.SyntaxKind.IntersectionType:
+        markIntersectionAsRelevant(typeDesc,jsDoc,options);
+        break;
+      default:
+        break;
     }
   }
 }
@@ -211,14 +240,25 @@ export function parameterListToJSON(method: DecoratedFunction,options?:any):Obje
  *
  * @param {any} parms The AST subtree describing the parameter list.
  */
-export function traverseParameterList(parms: any,decoratorMeta:any): TypedId[] {
+export function traverseParameterList(parms: any,decoratorMeta:any, fallbackParms?: any): TypedId[] {
   let parameterList:TypedId[] = [];
 
   for(let i = 0;i < parms.length;i++) {
     let required = true;
 
     if(parms[i].questionToken != null) required = false;
-    parameterList.push(<TypedId>{ id:parms[i].name.text, type:parms[i].type, decorators:decoratorMeta[parms[i].name.text], required:required });
+    let typeNode = parms[i].type;
+
+    if((typeNode == null || typeNode.kind == ts.SyntaxKind.UnknownKeyword || typeNode.kind == ts.SyntaxKind.AnyKeyword) && fallbackParms != null && fallbackParms[i] != null && fallbackParms[i].type != null) {
+      typeNode = fallbackParms[i].type;
+    }
+    else if(typeNode != null && typeNode.kind == ts.SyntaxKind.TypeReference) {
+      let idx = getIndex(typeNode);
+      if(idx === "unknown" && fallbackParms != null && fallbackParms[i] != null && fallbackParms[i].type != null) {
+        typeNode = fallbackParms[i].type;
+      }
+    }
+    parameterList.push(<TypedId>{ id:parms[i].name.text, type:typeNode, decorators:decoratorMeta[parms[i].name.text], required:required });
   }
   return parameterList;
 }

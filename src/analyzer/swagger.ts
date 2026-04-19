@@ -370,11 +370,11 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
       let isUnion = returnTypeDesc.kind == ts.SyntaxKind.UnionType;
 
       if(!isUnion && returnTypeDesc.kind == ts.SyntaxKind.TypeReference) {
-        let alias = symtabGet(returnTypename).decl;
+        let entry = symtabGet(returnTypename);
 
-        if(alias.type) {
-          isUnion = alias.type.kind == ts.SyntaxKind.UnionType;
-          if(isUnion) returnTypeDesc = alias.type;
+        if(entry != null && entry.decl != null && entry.decl.type) {
+          isUnion = entry.decl.type.kind == ts.SyntaxKind.UnionType;
+          if(isUnion) returnTypeDesc = entry.decl.type;
         }
       }
 
@@ -418,10 +418,10 @@ function genSwaggerReturn(returnTypeDesc:any,res:any) {
       }
       else {
         if(returnTypeDesc.kind == ts.SyntaxKind.TypeReference) {
-          let decl = symtabGet(returnTypename).decl;
+          let entry = symtabGet(returnTypename);
 
-          if(decl.type) {
-            returnTypeDesc = decl.type;
+          if(entry != null && entry.decl != null && entry.decl.type) {
+            returnTypeDesc = entry.decl.type;
             returnTypename = getIndex(returnTypeDesc);
           }
         }
